@@ -394,7 +394,7 @@ def cell_segmentation_morphology(
     )
 
 if __name__ == "__main__":
-    test = True
+    test = False
     directory_path = '~/live_cell_imaging_data/cell_tracking_data/240106_donor2_segmentation_results/dcl_samres/'
     group_logic = {
         "safe_harbor_ko": ["B3", "B4", "B5", "B6"],

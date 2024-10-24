@@ -131,7 +131,7 @@ def cell_tracking(
         print(f"Saved {key} to {full_path}")
 
 if __name__ == "__main__":
-    test = True
+    test = False
     directory_path = '~/live_cell_imaging_data/cell_tracking_data/240422_tracked_BCDE'
     save_data_root_path = '~/Downloads'
     
