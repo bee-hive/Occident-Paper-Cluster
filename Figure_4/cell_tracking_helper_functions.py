@@ -2166,6 +2166,12 @@ def run_linear_regression_tests_nontracking_data(
     metric = "cell_area_ratio"
     print(f"\nRunning Linear Regression Test for {metric}")
 
+    cancer_nuc_df['group'] = cancer_nuc_df['group'].replace({
+        'Safe Harbor KO': 'safe_harbor_ko',
+        'RASA2 KO': 'rasa2_ko',
+        'CUL5 KO': 'cul5_ko'
+    })
+
     rasa_2ko = combined_ratio_df[combined_ratio_df['group'] == 'rasa2_ko']
     safe_harbor_ko = combined_ratio_df[combined_ratio_df['group'] == 'safe_harbor_ko']
     cul5_ko = combined_ratio_df[combined_ratio_df['group'] == 'cul5_ko']
@@ -2259,6 +2265,7 @@ def run_linear_regression_tests_nontracking_data(
 
     # Save to CSV
     save_path = f"~/Occident-Paper/plots/clumped_to_single_cancer_cell_area_ratio_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
 
@@ -2361,6 +2368,7 @@ def run_linear_regression_tests_nontracking_data(
 
     # Save to CSV
     save_path = f"~/Occident-Paper/tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
 
@@ -2462,6 +2470,7 @@ def run_linear_regression_tests_nontracking_data(
 
     # Save to CSV
     save_path = f"~/Occident-Paper/tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
     # SINGLE CANCER CELL ROUNDNESS
@@ -2562,4 +2571,5 @@ def run_linear_regression_tests_nontracking_data(
 
     # Save to CSV
     save_path = f"~/Occident-Paper/tables/single_cancer_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)

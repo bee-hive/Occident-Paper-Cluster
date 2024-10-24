@@ -51,6 +51,7 @@ from Figure_4.cell_tracking_helper_functions import(
 )
 
 def cell_segmentation_morphology(
+        test,
         directory_path,
         group_logic,
         colors,
@@ -69,11 +70,33 @@ def cell_segmentation_morphology(
     base_clumped_cancer_cell_morphology_over_time_table_filename = '~/Occident-Paper/tables/{metric}_clumped_cancer_cell_morphology_over_time_{task_timestamp}.csv'
     base_cancer_cell_morphology_over_time_filename = '~/Occident-Paper/plots/{metric}_cancer_cell_morphology_over_time_{task_timestamp}.pdf'
     base_cancer_individual_clumped_area_ratio_over_time_filename = '~/Occident-Paper/plots/single_and_clumped_cancer_cell_area_ratio_over_time_{task_timestamp}.pdf'
+    
+    base_save_single_cancer_barplots_filename = os.path.expanduser(base_save_single_cancer_barplots_filename)
+    base_save_clumped_cancer_barplots_filename = os.path.expanduser(base_save_clumped_cancer_barplots_filename)
+    base_all_and_attached_t_cell_morphology_over_time_filename = os.path.expanduser(base_all_and_attached_t_cell_morphology_over_time_filename)
+    base_attached_t_cell_morphology_over_time_filename = os.path.expanduser(base_attached_t_cell_morphology_over_time_filename)
+    base_all_t_cell_morphology_over_time_filename = os.path.expanduser(base_all_t_cell_morphology_over_time_filename)
+    base_single_and_clumped_cancer_cell_morphology_over_time_filename = os.path.expanduser(base_single_and_clumped_cancer_cell_morphology_over_time_filename)
+    base_single_cancer_cell_morphology_over_time_filename = os.path.expanduser(base_single_cancer_cell_morphology_over_time_filename)
+    base_clumped_cancer_cell_morphology_over_time_filename = os.path.expanduser(base_clumped_cancer_cell_morphology_over_time_filename)
+    base_single_cancer_cell_morphology_over_time_table_filename = os.path.expanduser(base_single_cancer_cell_morphology_over_time_table_filename)
+    base_clumped_cancer_cell_morphology_over_time_table_filename = os.path.expanduser(base_clumped_cancer_cell_morphology_over_time_table_filename)
+    base_cancer_cell_morphology_over_time_filename = os.path.expanduser(base_cancer_cell_morphology_over_time_filename)
+    base_cancer_individual_clumped_area_ratio_over_time_filename = os.path.expanduser(base_cancer_individual_clumped_area_ratio_over_time_filename)
+    
+    directory_path = os.path.expanduser(directory_path)
     filepaths = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
 
     codes = [code for sublist in group_logic.values() for code in sublist]
     filtered_filepaths = [filepath for filepath in filepaths if any(code in os.path.basename(filepath) for code in codes)]
     filtered_filepaths = [path for path in filtered_filepaths if 'start_0_end_50' not in path]
+    if test:
+        print(f"***Loading test env***")
+        filtered_filepaths = [filepath for filepath in filtered_filepaths if any(code in os.path.basename(filepath) for code in [
+            'B3',
+            'B7',
+            'E3'
+            ])]
     
     all_t_cell_mask_dict = {}
     all_attached_t_cells_dict = {}
@@ -161,6 +184,7 @@ def cell_segmentation_morphology(
         suffixes=('_all', '_attached')
     )
     save_filename = f'~/Occident-Paper/tables/all_t_cell_and_attached_t_cell_morphology_{task_timestamp}.csv'
+    save_filename = os.path.expanduser(save_filename)
     final_df.to_csv(save_filename, index=False)
     
     print(f"\nPerforming Single Cancer Cell and Clumped Cancer Cell Analysis")
@@ -202,6 +226,7 @@ def cell_segmentation_morphology(
         suffixes=('_single', '_clumped')
     )
     save_filename = f'~/Occident-Paper/tables/single_and_clumped_cancer_cell_morphology_{task_timestamp}.csv'
+    save_filename = os.path.expanduser(save_filename)
     final_df.to_csv(save_filename, index=False)
 
     print(f"\nPlotting Morphology Over Time")
@@ -288,7 +313,7 @@ def cell_segmentation_morphology(
         base_single_cancer_cell_morphology_over_time_table_filename=base_single_cancer_cell_morphology_over_time_table_filename,
         base_clumped_cancer_cell_morphology_over_time_table_filename=base_clumped_cancer_cell_morphology_over_time_table_filename,
         task_timestamp=task_timestamp
-        )
+    )
     plot_individual_and_clumped_cancer_cell_area_ratio(
         cancer_nuc_grouped_results=cancer_nuc_grouped_results,
         cancer_samdcl_grouped_results=cancer_samdcl_grouped_results,
@@ -369,6 +394,7 @@ def cell_segmentation_morphology(
     )
 
 if __name__ == "__main__":
+    test = True
     directory_path = '~/live_cell_imaging_data/cell_tracking_data/240106_donor2_segmentation_results/dcl_samres/'
     group_logic = {
         "safe_harbor_ko": ["B3", "B4", "B5", "B6"],
@@ -390,6 +416,7 @@ if __name__ == "__main__":
     }
 
     cell_segmentation_morphology(
+        test=test,
         directory_path=directory_path,
         group_logic=group_logic,
         colors=colors,

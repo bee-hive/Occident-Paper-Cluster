@@ -1,3 +1,8 @@
+"""
+- This script remove the first 50 frames from the analysis
+- This script requires velocity data already generated from cell_tracking_velocity_data.py
+"""
+
 import sys
 import os
 import sys
@@ -76,17 +81,28 @@ def cell_tracking(
         min_consecutive_frames_list: list,
         post_interaction_windows: list,
         directory_path: str,
-        existing_data_path: str,
+        existing_velocity_t_cell_data_path: str,
+        existing_velocity_cancer_cell_data_path: str,
         group_logic: dict,
         colors: dict,
-        auth_keys_path: str,
 ):
     task_timestamp = datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific')).strftime('%Y-%m-%d_%H:%M:%S')
+    directory_path = os.path.expanduser(directory_path)
+    existing_velocity_t_cell_data_path = os.path.expanduser(existing_velocity_t_cell_data_path)
+    existing_velocity_cancer_cell_data_path = os.path.expanduser(existing_velocity_cancer_cell_data_path)
     filepaths = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
 
     codes = [code for sublist in group_logic.values() for code in sublist]
     filtered_filepaths = [filepath for filepath in filepaths if any(code in os.path.basename(filepath) for code in codes)]
     
+    if test:
+        print(f"***Loading test env***")
+        filtered_filepaths = [filepath for filepath in filtered_filepaths if any(code in os.path.basename(filepath) for code in [
+            'B3',
+            'B7',
+            'E3'
+            ])]
+
     df_interactions_list = []
     df_consecutive_interactions_list = []
     t_cell_area_list = []
@@ -142,17 +158,13 @@ def cell_tracking(
     df_cancer_cell_area = pd.concat(new_cancer_df, ignore_index=True)
     
     print(f"\nLoading Existing Velocity Data")
-    if existing_data_path:
-        t_cell_data_path = f'{existing_data_path}/cell_tracking_t_cell_cvs_data'
-        cancer_cell_data_path = f'{existing_data_path}/cell_tracking_cancer_csv_data'
+    t_cell_downloads_path = os.path.expanduser(existing_velocity_t_cell_data_path)
+    cancer_cell_downloads_path = os.path.expanduser(existing_velocity_cancer_cell_data_path)
+    transformed_t_cell_velocity_df = load_data_into_dataframe(t_cell_downloads_path)
+    transformed_cancer_cell_velocity_df = load_data_into_dataframe(cancer_cell_downloads_path)
 
-        t_cell_downloads_path = os.path.expanduser(t_cell_data_path)
-        cancer_cell_downloads_path = os.path.expanduser(cancer_cell_data_path)
-        transformed_t_cell_velocity_df = load_data_into_dataframe(t_cell_downloads_path)
-        transformed_cancer_cell_velocity_df = load_data_into_dataframe(cancer_cell_downloads_path)
-
-        transformed_t_cell_velocity_df.rename(columns={'cell_id': 't_cell_id', 'velocity': 't_cell_velocity'}, inplace=True)
-        transformed_cancer_cell_velocity_df.rename(columns={'cell_id': 'cancer_cell_id', 'velocity': 'cancer_cell_velocity'}, inplace=True)
+    transformed_t_cell_velocity_df.rename(columns={'cell_id': 't_cell_id', 'velocity': 't_cell_velocity'}, inplace=True)
+    transformed_cancer_cell_velocity_df.rename(columns={'cell_id': 'cancer_cell_id', 'velocity': 'cancer_cell_velocity'}, inplace=True)
     if test:
         relevant_filenames = df_interactions['filename'].unique().tolist()
         transformed_t_cell_velocity_df = transformed_t_cell_velocity_df[transformed_t_cell_velocity_df['filename'].isin(relevant_filenames)]
@@ -277,6 +289,8 @@ def cell_tracking(
     print(f"\nMaking T-Cell Roundness Plot and Table")
     base_save_roundness_plot_filename = '~/Occident-Paper/plots/average_t_cell_roundness_{task_timestamp}_past50.pdf'
     base_save_roundness_table_filename = '~/Occident-Paper/tables/t_cell_group_roundness_summary_{task_timestamp}_past50.csv'
+    base_save_roundness_plot_filename = os.path.expanduser(base_save_roundness_plot_filename)
+    base_save_roundness_table_filename = os.path.expanduser(base_save_roundness_table_filename)
     
     make_roundness_plot_and_table(
         input_df=df_t_cell_area,
@@ -297,6 +311,17 @@ def cell_tracking(
     base_interaction_distribution_over_time_plot_filename = "~/Occident-Paper/plots/interaction_distribution_plot_over_time_{task_timestamp}_past50.pdf"
     base_unique_interaction_table_filename = "~/Occident-Paper/tables/unique_interaction_table_{task_timestamp}_past50.csv"
     base_linear_regression_model_summary_table = '~/Occident-Paper/tables/linear_regression_model_summary_{task_timestamp}.csv'
+
+    base_t_cell_comparison_tbl_filename = os.path.expanduser(base_t_cell_comparison_tbl_filename)
+    base_cancer_cell_comparison_tbl_filename = os.path.expanduser(base_cancer_cell_comparison_tbl_filename)
+    base_t_cell_linear_regression_filename = os.path.expanduser(base_t_cell_linear_regression_filename)
+    base_cancer_cell_linear_regression_filename = os.path.expanduser(base_cancer_cell_linear_regression_filename)
+    base_interaction_distribution_plot_filename = os.path.expanduser(base_interaction_distribution_plot_filename)
+    base_interaction_distribution_table_filename = os.path.expanduser(base_interaction_distribution_table_filename)
+    base_interaction_distribution_over_time_plot_filename = os.path.expanduser(base_interaction_distribution_over_time_plot_filename)
+    base_unique_interaction_table_filename = os.path.expanduser(base_unique_interaction_table_filename)
+    base_linear_regression_model_summary_table = os.path.expanduser(base_linear_regression_model_summary_table)
+    
     make_comparison_tables(
         input_df=cell_combined_dict['t_cell'], 
         task_timestamp=task_timestamp, 
@@ -336,33 +361,45 @@ def cell_tracking(
     cancer_cell_plot_filename = f'~/Occident-Paper/plots/cancer_cell_perimeter_area_roundness_velocity_plots_{task_timestamp}_past50.pdf'  
     t_cell_plot_base_filename_individual = '~/Occident-Paper/plots/'
     cancer_cell_plot_base_filename_individual = '~/Occident-Paper/plots/'
+
+    t_cell_plot_filename = os.path.expanduser(t_cell_plot_filename)
+    cancer_cell_plot_filename = os.path.expanduser(cancer_cell_plot_filename)
+    t_cell_plot_base_filename_individual = os.path.expanduser(t_cell_plot_base_filename_individual)
+    cancer_cell_plot_base_filename_individual = os.path.expanduser(cancer_cell_plot_base_filename_individual)
+
     plot_perimeter_area_roundness_velocity(cell_combined_dict['t_cell'], colors, t_cell_plot_filename)
     plot_perimeter_area_roundness_velocity(cell_combined_dict['cancer_cell'], colors, cancer_cell_plot_filename)
     plot_metrics_individual(cell_combined_dict['t_cell'], colors, t_cell_plot_base_filename_individual, task_timestamp)
     plot_metrics_individual(cell_combined_dict['cancer_cell'], colors, cancer_cell_plot_base_filename_individual, task_timestamp)
 
 if __name__ == "__main__":
-    min_consecutive_frames_list = [2, 5, 10]
-    post_interaction_windows = [5, 10]
-    
+    test = False
     directory_path = '~/live_cell_imaging_data/cell_tracking_data/240422_tracked_BCDE/'
-    existing_data_path = '~/live_cell_imaging_data/cell_tracking_data'
+    existing_velocity_t_cell_data_path = None # example: '~/live_cell_imaging_data/cell_tracking_data/cell_tracking_t_cell_cvs_data_2022-04-24_14:00:00'
+    existing_velocity_cancer_cell_data_path = None
+
     group_logic = {
         "safe_harbor_ko": ["B3", "B4", "B5", "B6"],
         "cul5_ko": ["B7", "B8", "B9", "B10"],
         "rasa2_ko": ["E3", "E4", "E5", "E6"]
     }
     colors = {
-            'Safe Harbor KO': '#a9a9a9', 
-            'RASA2 KO': '#800000',
-            'CUL5 KO': '#000075'
-        }
+        'Safe Harbor KO': '#a9a9a9', 
+        'RASA2 KO': '#800000',
+        'CUL5 KO': '#000075'
+    }
+    
+    
+    min_consecutive_frames_list = [2, 5, 10]
+    post_interaction_windows = [5, 10]
 
     cell_tracking(
+        test=test,
         min_consecutive_frames_list=min_consecutive_frames_list,
         post_interaction_windows=post_interaction_windows,
         directory_path=directory_path,
-        existing_data_path=existing_data_path,
+        existing_velocity_t_cell_data_path=existing_velocity_t_cell_data_path,
+        existing_velocity_cancer_cell_data_path=existing_velocity_cancer_cell_data_path,
         group_logic=group_logic,
         colors=colors,
     )
