@@ -1919,6 +1919,72 @@ def plot_data_individual(df, metric, title, color, label, ax):
     sns.lineplot(x=x, y=y, label=label, color=color, ax=ax)
     ax.fill_between(x, y - err, y + err, color=color, alpha=0.3)
 
+def plot_cell_area_sum_with_ci(
+    cancer_samdcl_df,
+    base_clumped_cancer_cell_morphology_sum_over_time_filename,
+    task_timestamp,
+    colors
+):
+    data_df = cancer_samdcl_df.copy()
+    data_df['group'] = data_df['group'].replace({
+        'safe_harbor_ko': 'Safe Harbor KO',
+        'rasa2_ko': 'RASA2 KO',
+        'cul5_ko': 'CUL5 KO'
+    })
+
+    # Create 'well' column by extracting the substring between the first and second '_'
+    data_df['well'] = data_df['filename'].apply(lambda x: x.split('_')[1])
+
+    # Group by frame, group, and well to sum the cell_area for each well
+    area_sum_by_frame_and_well = data_df.groupby(['frame', 'group', 'well'])['cell_area'].sum().reset_index()
+
+    # Group by frame and group to calculate the mean and SEM (standard error of mean)
+    area_summary = area_sum_by_frame_and_well.groupby(['frame', 'group']).agg(
+        mean_cell_area=('cell_area', 'mean'),
+        sem_cell_area=('cell_area', lambda x: x.std() / (len(x) ** 0.5))
+    ).reset_index()
+
+    # Compute the 95% confidence intervals
+    area_summary['upper_95_ci'] = area_summary['mean_cell_area'] + 1.96 * area_summary['sem_cell_area']
+    area_summary['lower_95_ci'] = area_summary['mean_cell_area'] - 1.96 * area_summary['sem_cell_area']
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # Plot each group's data with specified colors
+    for group_name, color in colors.items():
+        group_data = area_summary[area_summary['group'] == group_name]
+
+        # Plot the mean cell area
+        ax.plot(group_data['frame'], group_data['mean_cell_area'], label=group_name, color=color)
+
+        # Plot the 95% CI as a shaded area
+        ax.fill_between(
+            group_data['frame'],
+            group_data['lower_95_ci'],
+            group_data['upper_95_ci'],
+            color=color,
+            alpha=0.3
+        )
+    
+    # Set plot details
+    ax.set_xlabel('Frame')
+    ax.set_ylabel('Mean Sum of Cell Area')
+    # ax.set_title('Mean Sum of Cell Area by Frame with 95% CI for All Groups')
+    ax.legend(title='Group Type', loc='upper left')
+    
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Apply tight layout
+    plt.tight_layout()
+
+    # Save the plot
+    final_save_filename = base_clumped_cancer_cell_morphology_sum_over_time_filename.format(task_timestamp=task_timestamp)
+    plt.savefig(final_save_filename, transparent=True)
+    plt.close()
+
 def plot_individual_and_clumped_cancer_cell_area_ratio(
         cancer_nuc_grouped_results, 
         cancer_samdcl_grouped_results, 

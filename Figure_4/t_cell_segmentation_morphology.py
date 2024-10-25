@@ -43,6 +43,7 @@ from Figure_4.cell_tracking_helper_functions import(
     plot_individual_t_cell_segmentation_morphology_metrics,
     plot_individual_and_clumped_cancer_cell_segmentation_morphology_metrics,
     plot_individual_or_clumped_cancer_cell_segmentation_morphology_and_compute_summary_table_metrics,
+    plot_cell_area_sum_with_ci,
     plot_individual_and_clumped_cancer_cell_area_ratio,
     plot_cancer_cell_segmentation_morphology_metrics,
     make_cancer_cell_barplots,
@@ -70,6 +71,7 @@ def cell_segmentation_morphology(
     base_clumped_cancer_cell_morphology_over_time_table_filename = '~/Occident-Paper/tables/{metric}_clumped_cancer_cell_morphology_over_time_{task_timestamp}.csv'
     base_cancer_cell_morphology_over_time_filename = '~/Occident-Paper/plots/{metric}_cancer_cell_morphology_over_time_{task_timestamp}.pdf'
     base_cancer_individual_clumped_area_ratio_over_time_filename = '~/Occident-Paper/plots/single_and_clumped_cancer_cell_area_ratio_over_time_{task_timestamp}.pdf'
+    base_clumped_cancer_cell_morphology_sum_over_time_filename = "~/Occident-Paper/plots/cell_area_sum_clumped_cancer_cell_morphology_over_time_{task_timestamp}.pdf"
     
     base_save_single_cancer_barplots_filename = os.path.expanduser(base_save_single_cancer_barplots_filename)
     base_save_clumped_cancer_barplots_filename = os.path.expanduser(base_save_clumped_cancer_barplots_filename)
@@ -83,6 +85,7 @@ def cell_segmentation_morphology(
     base_clumped_cancer_cell_morphology_over_time_table_filename = os.path.expanduser(base_clumped_cancer_cell_morphology_over_time_table_filename)
     base_cancer_cell_morphology_over_time_filename = os.path.expanduser(base_cancer_cell_morphology_over_time_filename)
     base_cancer_individual_clumped_area_ratio_over_time_filename = os.path.expanduser(base_cancer_individual_clumped_area_ratio_over_time_filename)
+    base_clumped_cancer_cell_morphology_sum_over_time_filename = os.path.expanduser(base_clumped_cancer_cell_morphology_sum_over_time_filename)
     
     directory_path = os.path.expanduser(directory_path)
     filepaths = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
@@ -313,6 +316,12 @@ def cell_segmentation_morphology(
         base_single_cancer_cell_morphology_over_time_table_filename=base_single_cancer_cell_morphology_over_time_table_filename,
         base_clumped_cancer_cell_morphology_over_time_table_filename=base_clumped_cancer_cell_morphology_over_time_table_filename,
         task_timestamp=task_timestamp
+    )
+    plot_cell_area_sum_with_ci(
+        cancer_samdcl_df=cancer_samdcl_df, 
+        base_clumped_cancer_cell_morphology_sum_over_time_filename=base_clumped_cancer_cell_morphology_sum_over_time_filename, 
+        task_timestamp=task_timestamp, 
+        colors=colors
     )
     plot_individual_and_clumped_cancer_cell_area_ratio(
         cancer_nuc_grouped_results=cancer_nuc_grouped_results,
