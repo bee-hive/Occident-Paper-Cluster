@@ -4,7 +4,7 @@ Code for creating figures from Occident paper "Dynamic phenotyping of CAR T-cell
 
 ## Data
 
-Live cell images with segmentation and tracking are available here XXX TODO MAKE DROPBOX LINK.
+Live cell images with segmentation and tracking will be made available on bioimage aarchive shortly.
 
 ## Environment
 
