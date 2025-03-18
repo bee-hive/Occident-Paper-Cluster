@@ -738,7 +738,7 @@ def make_cumulative_area_change_plot(
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to make room for the suptitle
         filename_prefix = 't_cell' if cell_specific_column == 't_cell_area' else 'cancer_cell'
-        plt.savefig(f'~/Occident-Paper/plots/{filename_prefix}_cumulative_area_change_over_time_{task_timestamp}.pdf')
+        plt.savefig(f'./plots/{filename_prefix}_cumulative_area_change_over_time_{task_timestamp}.pdf')
         plt.close()
 
 def make_mean_area_change_plot(
@@ -797,7 +797,7 @@ def make_mean_area_change_plot(
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         filename_prefix = 't_cell' if cell_specific_column == 't_cell_area' else 'cancer_cell'
-        plt.savefig(f'~/Occident-Paper/plots/{filename_prefix}_mean_cumulative_area_change_over_time_{task_timestamp}.pdf')
+        plt.savefig(f'./plots/{filename_prefix}_mean_cumulative_area_change_over_time_{task_timestamp}.pdf')
         plt.close()
 
 
@@ -823,7 +823,7 @@ def make_cumulative_area_change_tbls(
                 cumulative_area_change_summary_stats_df.rename(columns={'area_change': f'{cell_group}_{key}'}, inplace=True)
                 final_cumulative_area_change_summary_stats_df = pd.concat([final_cumulative_area_change_summary_stats_df, cumulative_area_change_summary_stats_df], axis=1)
         filename_prefix = 't_cell' if 't_cell_area' in cell_specific_column else 'cancer_cell'
-        tbl_filename = f"~/Occident-Paper/tables/{filename_prefix}_cumulative_area_change_summary_stats_{task_timestamp}.csv"
+        tbl_filename = f"./tables/{filename_prefix}_cumulative_area_change_summary_stats_{task_timestamp}.csv"
         final_cumulative_area_change_summary_stats_df.to_csv(tbl_filename)
         print(f"{cell_specific_column}:\n{final_cumulative_area_change_summary_stats_df}")
         final_cumulative_area_change_summary_stats_df = pd.DataFrame()
@@ -865,7 +865,7 @@ def make_cumulative_area_change_violinplot_subplots(
 
         # Save the figure
         filename_prefix = 't_cell' if 't_cell_area' in cell_specific_column else 'cancer_cell'
-        plt.savefig(f'~/Occident-Paper/plots/{filename_prefix}_violin_cumulative_area_change_over_time_{task_timestamp}.pdf')
+        plt.savefig(f'./plots/{filename_prefix}_violin_cumulative_area_change_over_time_{task_timestamp}.pdf')
         plt.close()
 
 def make_roundness_plot_and_table(
@@ -2330,7 +2330,7 @@ def run_linear_regression_tests_nontracking_data(
     model_summary_df = pd.DataFrame(model_stats_list)
 
     # Save to CSV
-    save_path = f"~/Occident-Paper/plots/clumped_to_single_cancer_cell_area_ratio_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = f"./plots/clumped_to_single_cancer_cell_area_ratio_linear_regression_model_summary_{task_timestamp}.csv"
     save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
@@ -2433,7 +2433,7 @@ def run_linear_regression_tests_nontracking_data(
     model_summary_df = pd.DataFrame(model_stats_list)
 
     # Save to CSV
-    save_path = f"~/Occident-Paper/tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = f"./tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
     save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
@@ -2535,7 +2535,7 @@ def run_linear_regression_tests_nontracking_data(
     model_summary_df = pd.DataFrame(model_stats_list)
 
     # Save to CSV
-    save_path = f"~/Occident-Paper/tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = f"./tables/all_t_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
     save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)
 
@@ -2636,6 +2636,6 @@ def run_linear_regression_tests_nontracking_data(
     model_summary_df = pd.DataFrame(model_stats_list)
 
     # Save to CSV
-    save_path = f"~/Occident-Paper/tables/single_cancer_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
+    save_path = f"./tables/single_cancer_cell_roundness_linear_regression_model_summary_{task_timestamp}.csv"
     save_path = os.path.expanduser(save_path)
     model_summary_df.to_csv(save_path, index=False)

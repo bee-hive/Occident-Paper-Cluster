@@ -42,7 +42,7 @@ pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
-sys.path.append(os.path.expanduser('~/Occident-Paper'))
+sys.path.append(os.path.expanduser('.'))
 from Figure_4.cell_tracking_helper_functions import(
     load_data_local,
     load_data_into_dataframe,
@@ -287,8 +287,8 @@ def cell_tracking(
     }
 
     print(f"\nMaking T-Cell Roundness Plot and Table")
-    base_save_roundness_plot_filename = '~/Occident-Paper/plots/average_t_cell_roundness_{task_timestamp}_past50.pdf'
-    base_save_roundness_table_filename = '~/Occident-Paper/tables/t_cell_group_roundness_summary_{task_timestamp}_past50.csv'
+    base_save_roundness_plot_filename = './plots/average_t_cell_roundness_{task_timestamp}_past50.pdf'
+    base_save_roundness_table_filename = './tables/t_cell_group_roundness_summary_{task_timestamp}_past50.csv'
     base_save_roundness_plot_filename = os.path.expanduser(base_save_roundness_plot_filename)
     base_save_roundness_table_filename = os.path.expanduser(base_save_roundness_table_filename)
     
@@ -302,15 +302,15 @@ def cell_tracking(
     )
     
     print(f"\nRunning Tests")
-    base_t_cell_comparison_tbl_filename = "~/Occident-Paper/tables/t_cell_{consec_frame_group}_results_{base_group}_{task_timestamp}_past50.csv"
-    base_cancer_cell_comparison_tbl_filename = "~/Occident-Paper/tables/cancer_cell_{consec_frame_group}_results_{base_group}_{task_timestamp}_past50.csv"
-    base_t_cell_linear_regression_filename = '~/Occident-Paper/tables/t_cell_linear_regression_{task_timestamp}_past50.csv'
-    base_cancer_cell_linear_regression_filename = '~/Occident-Paper/tables/cancer_cell_linear_regression_{task_timestamp}_past50.csv'
-    base_interaction_distribution_plot_filename = "~/Occident-Paper/plots/interaction_distribution_plot_{task_timestamp}_past50.pdf"
-    base_interaction_distribution_table_filename = "~/Occident-Paper/tables/interaction_distribution_table_{task_timestamp}_past50.csv"
-    base_interaction_distribution_over_time_plot_filename = "~/Occident-Paper/plots/interaction_distribution_plot_over_time_{task_timestamp}_past50.pdf"
-    base_unique_interaction_table_filename = "~/Occident-Paper/tables/unique_interaction_table_{task_timestamp}_past50.csv"
-    base_linear_regression_model_summary_table = '~/Occident-Paper/tables/linear_regression_model_summary_{task_timestamp}.csv'
+    base_t_cell_comparison_tbl_filename = "./tables/t_cell_{consec_frame_group}_results_{base_group}_{task_timestamp}_past50.csv"
+    base_cancer_cell_comparison_tbl_filename = "./tables/cancer_cell_{consec_frame_group}_results_{base_group}_{task_timestamp}_past50.csv"
+    base_t_cell_linear_regression_filename = './tables/t_cell_linear_regression_{task_timestamp}_past50.csv'
+    base_cancer_cell_linear_regression_filename = './tables/cancer_cell_linear_regression_{task_timestamp}_past50.csv'
+    base_interaction_distribution_plot_filename = "./plots/interaction_distribution_plot_{task_timestamp}_past50.pdf"
+    base_interaction_distribution_table_filename = "./tables/interaction_distribution_table_{task_timestamp}_past50.csv"
+    base_interaction_distribution_over_time_plot_filename = "./plots/interaction_distribution_plot_over_time_{task_timestamp}_past50.pdf"
+    base_unique_interaction_table_filename = "./tables/unique_interaction_table_{task_timestamp}_past50.csv"
+    base_linear_regression_model_summary_table = './tables/linear_regression_model_summary_{task_timestamp}.csv'
 
     base_t_cell_comparison_tbl_filename = os.path.expanduser(base_t_cell_comparison_tbl_filename)
     base_cancer_cell_comparison_tbl_filename = os.path.expanduser(base_cancer_cell_comparison_tbl_filename)
@@ -357,10 +357,10 @@ def cell_tracking(
         base_interaction_distribution_over_time_plot_filename=base_interaction_distribution_over_time_plot_filename
     )
 
-    t_cell_plot_filename = f'~/Occident-Paper/plots/t_cell_perimeter_area_roundness_velocity_plots_{task_timestamp}_past50.pdf'
-    cancer_cell_plot_filename = f'~/Occident-Paper/plots/cancer_cell_perimeter_area_roundness_velocity_plots_{task_timestamp}_past50.pdf'  
-    t_cell_plot_base_filename_individual = '~/Occident-Paper/plots/'
-    cancer_cell_plot_base_filename_individual = '~/Occident-Paper/plots/'
+    t_cell_plot_filename = f'./plots/t_cell_perimeter_area_roundness_velocity_plots_{task_timestamp}_past50.pdf'
+    cancer_cell_plot_filename = f'./plots/cancer_cell_perimeter_area_roundness_velocity_plots_{task_timestamp}_past50.pdf'  
+    t_cell_plot_base_filename_individual = './plots/'
+    cancer_cell_plot_base_filename_individual = './plots/'
 
     t_cell_plot_filename = os.path.expanduser(t_cell_plot_filename)
     cancer_cell_plot_filename = os.path.expanduser(cancer_cell_plot_filename)
@@ -374,9 +374,11 @@ def cell_tracking(
 
 if __name__ == "__main__":
     test = False
-    directory_path = '~/live_cell_imaging_data/cell_tracking_data/240422_tracked_BCDE/'
-    existing_velocity_t_cell_data_path = None # example: '~/live_cell_imaging_data/cell_tracking_data/cell_tracking_t_cell_cvs_data_2022-04-24_14:00:00'
-    existing_velocity_cancer_cell_data_path = None
+    directory_path = '/gladstone/engelhardt/lab/MarsonLabIncucyteData/AnalysisFiles/CarnevaleRepStim/240422_tracked_BCDE/'
+    # use paths that are generated by cell_tracking_velocity_data.py
+    # make sure the time stamp at the end matches the correct run of cell_tracking_velocity_data.py
+    existing_velocity_t_cell_data_path = '/gladstone/engelhardt/lab/adamw/Occident-Paper-Cluster/analysis/cell_tracking_t_cell_csv_data_2025-03-03_11:44:03'
+    existing_velocity_cancer_cell_data_path = '/gladstone/engelhardt/lab/adamw/Occident-Paper-Cluster/analysis/cell_tracking_cancer_csv_data_2025-03-03_11:44:03'
 
     group_logic = {
         "safe_harbor_ko": ["B3", "B4", "B5", "B6"],

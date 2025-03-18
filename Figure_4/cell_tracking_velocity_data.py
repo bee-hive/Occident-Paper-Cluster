@@ -31,7 +31,7 @@ pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
-sys.path.append(os.path.expanduser('~/Occident-Paper'))
+sys.path.append(os.path.expanduser('.'))
 from Figure_4.cell_tracking_helper_functions import(
     load_data_local,
     calculate_centroids_for_all_cells,
@@ -106,7 +106,7 @@ def cell_tracking(
         transformed_cancer_cell_velocity_dict = transform_velocity_df(cancer_cell_velocity_dict, transformed_cancer_cell_velocity_dict, max_velocity_value)
 
     print(f"\nSaving Data")
-    downloads_path = os.path.expanduser(f"{save_data_root_path}/cell_tracking_t_cell_cvs_data_{task_timestamp}")
+    downloads_path = os.path.expanduser(f"{save_data_root_path}/cell_tracking_t_cell_csv_data_{task_timestamp}")
     if not os.path.exists(downloads_path):
         os.makedirs(downloads_path)
         print(f"Directory created at: {downloads_path}")
@@ -132,8 +132,8 @@ def cell_tracking(
 
 if __name__ == "__main__":
     test = False
-    directory_path = '~/live_cell_imaging_data/cell_tracking_data/240422_tracked_BCDE'
-    save_data_root_path = '~/Downloads'
+    directory_path = '/gladstone/engelhardt/lab/MarsonLabIncucyteData/AnalysisFiles/CarnevaleRepStim/240422_tracked_BCDE'
+    save_data_root_path = './analysis'
     
     window_size = None
     time_between_frames = 1
