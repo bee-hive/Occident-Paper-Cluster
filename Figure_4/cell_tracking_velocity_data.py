@@ -132,7 +132,7 @@ def cell_tracking(
 
 if __name__ == "__main__":
     test = False
-    directory_path = '/gladstone/engelhardt/lab/MarsonLabIncucyteData/AnalysisFiles/CarnevaleRepStim/240422_tracked_BCDE'
+    directory_path = '/gladstone/engelhardt/lab/MarsonLabIncucyteData/AnalysisFiles/CarnevaleRepStim/updated_full'
     save_data_root_path = './analysis'
     
     window_size = None
