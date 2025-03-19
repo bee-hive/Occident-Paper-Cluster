@@ -162,6 +162,6 @@ cython_debug/
 #.idea/
 
 Figure_*/figs/
-plots/
-tables/
-analysis/
+Figure_*/plots/
+Figure_*/tables/
+Figure_*/analysis/
