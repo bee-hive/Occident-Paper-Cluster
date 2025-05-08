@@ -1,45 +1,23 @@
 import sys
 import os
-import sys
-import re
-import json
 from typing import Optional
-import socket
 from datetime import datetime
 import pytz
-import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
-import seaborn as sns
-from io import BytesIO
-import itertools
-import math
-import tarfile
-from scipy.ndimage import find_objects
-from scipy.ndimage import label
-from scipy.stats import sem
-from skimage.morphology import square, binary_erosion, binary_dilation
-from skimage.morphology import remove_small_objects
-import skimage as sk
-import zipfile
-import tifffile
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+
+from occident.utils import load_deepcell_object
+from occident.velocity import (
+    calculate_velocity_consecutive_frames,
+    transform_velocity_df
+)
 
 pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
 sys.path.append(os.path.expanduser('.'))
-from Figure_4.cell_tracking_helper_functions import(
-    load_data_local,
-    calculate_centroids_for_all_cells,
-    calculate_velocity_consecutive_frames,
-    transform_velocity_df,
-    combine_dataframes,
-    safe_sem,
-)
+
 
 def cell_tracking(
         test: bool,
@@ -74,7 +52,7 @@ def cell_tracking(
         format_filename = filename.replace(".zip", "")
         print(f"\nIteration {current_iteration}/{total_iterations}")
         print(f"Processing data for file: {filename}")
-        dcl_ob = load_data_local(filepath)
+        dcl_ob = load_deepcell_object(filepath)
         dcl_y = dcl_ob['y'][:,:,:,0,:]
         t_cell_array = dcl_y[0,:,:,:]
         cancer_cell_array = dcl_y[1,:,:,:]

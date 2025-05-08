@@ -5,75 +5,35 @@
 
 import sys
 import os
-import sys
-import re
-import json
-from typing import Optional
-import socket
 from datetime import datetime
 import pytz
 import numpy as np
 import pandas as pd
-import scipy.stats
-from matplotlib import pyplot as plt
-from matplotlib.colors import ListedColormap
-import seaborn as sns
-from io import BytesIO
-import itertools
-import math
-import tarfile
-from scipy.ndimage import find_objects
-from scipy.ndimage import label
-from scipy.stats import sem, ttest_ind_from_stats, norm
-from scipy.stats import linregress
-from scipy import stats
-from skimage.morphology import square, binary_erosion, binary_dilation
-from skimage.morphology import remove_small_objects
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-import skimage as sk
-import zipfile
-import tifffile
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from occident.utils import load_deepcell_object
+from occident.tracking import (
+    load_data_into_dataframe,
+    process_all_frames,
+    calculate_consecutive_frames,
+    find_cell_interactions_with_counts,
+    get_group_from_filename,
+    filter_and_label
+)
 
 pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
 sys.path.append(os.path.expanduser('.'))
+
+# helper functions that are specific to the tables and plots for the SH, RASA2, and CUL5 dataset
 from Figure_4.cell_tracking_helper_functions import(
-    load_data_local,
-    load_data_into_dataframe,
-    analyze_cells,
-    process_all_frames,
-    identify_consecutive_frames,
-    calculate_consecutive_frames,
-    find_cell_interactions_with_counts,
-    classify_contact_pixels,
-    find_consecutive_interactions,
-    calculate_average_change,
-    get_group_from_filename,
-    filter_and_label,
-    calculate_cancer_cell_area_change,
-    mean_confidence_interval,
     make_roundness_plot_and_table,
     make_comparison_tables,
-    calculate_regression_metrics,
     make_linear_regression_tables,
-    compare_groups,
-    estimate_se,
-    average_metric_barplots,
-    individual_average_metric_barplots,
     make_interaction_analysis_plots,
     plot_perimeter_area_roundness_velocity,
     plot_metrics_individual,
-    make_cumulative_area_change_tbls,
-    make_cumulative_area_change_violinplot_subplots,
-    make_cumulative_area_change_plot,
-    make_mean_area_change_plot,
-    run_linear_regression_tests,
+    run_linear_regression_tests
 )
 
 def cell_tracking(
@@ -112,7 +72,7 @@ def cell_tracking(
         filename = os.path.basename(filepath)
         print(f"\nIteration {current_iteration}/{total_iterations}")
         print(f"Processing data for file: {filename}")
-        dcl_ob = load_data_local(filepath)
+        dcl_ob = load_deepcell_object(filepath)
         dcl_y = dcl_ob['y'][:,:,:,0,:]
         t_cell_array = dcl_y[0,:,:,:]
         cancer_cell_array = dcl_y[1,:,:,:]
@@ -390,7 +350,6 @@ if __name__ == "__main__":
         'RASA2 KO': '#800000',
         'CUL5 KO': '#000075'
     }
-    
     
     min_consecutive_frames_list = [2, 5, 10]
     post_interaction_windows = [5, 10]

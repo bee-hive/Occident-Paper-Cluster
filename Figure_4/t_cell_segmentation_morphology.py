@@ -1,32 +1,15 @@
 import sys
 import os
-import sys
-import re
-import json
-from typing import Optional
-import socket
 from datetime import datetime
 import pytz
 import numpy as np
 import pandas as pd
-import scipy.stats
-from matplotlib import pyplot as plt
-import seaborn as sns
-from io import BytesIO
-import itertools
-import math
-import tarfile
-from scipy.ndimage import find_objects
-from scipy.ndimage import label
-from scipy.stats import sem, ttest_ind_from_stats
-from scipy import stats
-from skimage.morphology import square, binary_erosion, binary_dilation
-from skimage.morphology import remove_small_objects
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-import skimage as sk
-import zipfile
-import tifffile
+from scipy.stats import ttest_ind_from_stats
+from occident.utils import load_deepcell_object, mean_confidence_interval, estimate_se
+from occident.tracking import (
+    process_all_frames,
+    get_group_from_filename
+)
 
 pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', None)
@@ -34,11 +17,7 @@ pd.set_option('display.width', None)
 
 sys.path.append(os.path.expanduser('.'))
 from Figure_4.cell_tracking_helper_functions import(
-    load_data_local,
-    process_all_frames,
-    get_group_from_filename,
-    mean_confidence_interval,
-    estimate_se,
+    make_cancer_cell_barplots,
     plot_t_cell_segmentation_morphology_metrics,
     plot_individual_t_cell_segmentation_morphology_metrics,
     plot_individual_and_clumped_cancer_cell_segmentation_morphology_metrics,
@@ -46,7 +25,6 @@ from Figure_4.cell_tracking_helper_functions import(
     plot_cell_area_sum_with_ci,
     plot_individual_and_clumped_cancer_cell_area_ratio,
     plot_cancer_cell_segmentation_morphology_metrics,
-    make_cancer_cell_barplots,
     run_linear_regression_tests_nontracking_data,
     calculate_ratio_and_error
 )
@@ -112,7 +90,7 @@ def cell_segmentation_morphology(
         print(f"Processing data for file: {filename}")
         
         print(f"Loading data")
-        dcl_ob = load_data_local(filepath)
+        dcl_ob = load_deepcell_object(filepath)
 
         dcl_y = dcl_ob['y'][:,:,:,0,:]
         cancer_nuc_mask = dcl_y[0,:,:,:]

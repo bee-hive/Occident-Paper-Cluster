@@ -1,872 +1,17 @@
+"""
+This file contains helper functions that are specific to the SH, RASA2, and CUL5 dataset. It is meant to be complementary
+to the functions in occident/tracking.py, occident/velocity.py, and occident/utils.py.
+"""
 import os
-import sys
-import re
-import json
-from typing import Optional
-import socket
-from datetime import datetime
-import pytz
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
-from io import BytesIO
-import scipy.stats
-import itertools
-import math
-import tarfile
-from scipy.ndimage import find_objects
-from scipy.ndimage import label
-from scipy.stats import sem, ttest_ind_from_stats, norm
+from scipy.stats import ttest_ind_from_stats
 from scipy.stats import linregress
-from skimage.morphology import square, binary_erosion, binary_dilation
-from skimage.morphology import remove_small_objects
-import statsmodels.api as sm
 import statsmodels.formula.api as smf
-import skimage as sk
-import zipfile
-import tifffile
-
-def load_data_local(
-        filepath
-):
-    f = zipfile.ZipFile(filepath, 'r')
-    file_bytes = f.read("cells.json")
-    with BytesIO() as b:
-        b.write(file_bytes)
-        b.seek(0)
-        cells = json.load(b)
-    file_bytes = f.read("divisions.json")
-    with BytesIO() as b:
-        b.write(file_bytes)
-        b.seek(0)
-        divisions = json.load(b)
-    file_bytes = f.read("X.ome.tiff")
-    with BytesIO() as b:
-        b.write(file_bytes)
-        b.seek(0)
-        X = sk.io.imread(b, plugin="tifffile")
-    file_bytes = f.read("y.ome.tiff")
-    with BytesIO() as b:
-        b.write(file_bytes)
-        b.seek(0)
-        y = sk.io.imread(b, plugin="tifffile")
-    dcl_ob = {
-        'X': np.expand_dims(X,3),
-        'y': np.expand_dims(y,3),
-        'divisions':divisions,
-        'cells': cells}
-    return dcl_ob
-
-def load_data_into_dataframe(data_path):
-    # Initialize an empty DataFrame to store concatenated results
-    combined_df = pd.DataFrame()
-    # Expand the path to the directory
-    downloads_path = os.path.expanduser(data_path)
-    # Iterate over each file in the directory
-    for file_name in os.listdir(downloads_path):
-        if file_name.endswith('.csv'):
-            # Construct the full path to the file
-            full_path = os.path.join(downloads_path, file_name)
-            # Load the CSV file into a DataFrame
-            df = pd.read_csv(full_path)
-            # Concatenate the loaded DataFrame with the combined DataFrame
-            combined_df = pd.concat([combined_df, df], ignore_index=True)
-
-    # Remove '.zip' from all rows in the 'filename' column if the column exists
-    if 'filename' in combined_df.columns:
-        combined_df['filename'] = combined_df['filename'].str.replace('.zip', '', regex=False)
-    
-    combined_df['frame'] = combined_df['frame'] + 1
-
-    return combined_df
-
-def analyze_cells(frame):
-    unique_cells = np.unique(frame)
-    unique_cells = unique_cells[unique_cells != 0]
-    
-    conversion_factor = 746 / 599
-    area_conversion_factor = conversion_factor ** 2  # Converting area to microns squared
-    
-    cell_data = {'cell_id': [], 'cell_area': [], 'perimeter_cell': [], 'cell_perimeter': []}
-    for cell_id in unique_cells:
-        cell_area_pixels = np.sum(frame == cell_id)
-        cell_area = cell_area_pixels * area_conversion_factor  # Convert area from pixels^2 to microns^2
-        
-        on_perimeter = np.any(frame[0, :] == cell_id) or np.any(frame[:, 0] == cell_id) or \
-                       np.any(frame[-1, :] == cell_id) or np.any(frame[:, -1] == cell_id)
-        
-        cell_perimeter_pixels = calculate_perimeter(frame, cell_id)
-        cell_perimeter = cell_perimeter_pixels * conversion_factor  # Convert perimeter from pixels to microns
-        
-        cell_data['cell_id'].append(cell_id)
-        cell_data['cell_area'].append(cell_area)
-        cell_data['perimeter_cell'].append(on_perimeter)
-        cell_data['cell_perimeter'].append(cell_perimeter)
-    
-    cell_data_df = pd.DataFrame(cell_data)
-    return cell_data_df
-
-def calculate_perimeter(frame, cell_id):
-    # Create a binary mask where the current cell_id is 1, and others are 0
-    cell_mask = frame == cell_id
-
-    # Pad the mask with zeros on all sides to handle edge cells correctly
-    padded_mask = np.pad(cell_mask, pad_width=1, mode='constant', constant_values=0)
-
-    # Count transitions from 1 to 0 (cell to non-cell) at each pixel
-    perimeter = (
-        np.sum(padded_mask[:-2, 1:-1] & ~padded_mask[1:-1, 1:-1]) +  # up
-        np.sum(padded_mask[2:, 1:-1] & ~padded_mask[1:-1, 1:-1]) +   # down
-        np.sum(padded_mask[1:-1, :-2] & ~padded_mask[1:-1, 1:-1]) +  # left
-        np.sum(padded_mask[1:-1, 2:] & ~padded_mask[1:-1, 1:-1])     # right
-    )
-
-    return perimeter
-
-def process_all_frames(
-        input_array, 
-        filename,
-        use_connected_component_labeling: Optional[bool] = False
-):
-    all_frames_data = []
-    
-    # Extract the start frame number from the filename using a regular expression
-    match = re.search(r'start_(\d+)_end_(\d+)', filename)
-    if match:
-        start_frame = int(match.group(1))
-
-    # Iterate through each frame in all_tcell_mask
-    for frame_idx in range(input_array.shape[0]):
-        frame = input_array[frame_idx, :, :]
-
-        if use_connected_component_labeling:
-            # Label the connected components in the frame
-            frame, num_features = label(frame)
-            print(f"Frame {frame_idx + 1} has {num_features} connected components")
-
-        cell_data_df = analyze_cells(frame)  # Ensure analyze_cells accepts filename
-        # Calculate the correct frame number based on the start frame
-        cell_data_df['frame'] = start_frame + frame_idx + 1
-        cell_data_df['filename'] = filename.replace('.zip', '')
-        all_frames_data.append(cell_data_df)
-
-    # Concatenate all DataFrames in the list into one large pd DataFrame
-    all_cell_data_df = pd.concat(all_frames_data, ignore_index=True)
-
-    return all_cell_data_df
-
-def calculate_centroid(
-        matrix, 
-        cell_id
-):
-    # calculate the centroid
-    y, x = np.where(matrix == cell_id)
-    if len(x) == 0 or len(y) == 0:
-        return None
-    return np.mean(x), np.mean(y)
-
-def calculate_centroids_for_all_cells(frame, unique_cell_ids):
-    centroids = {}
-    for cell_id in unique_cell_ids:
-        y, x = np.where(frame == cell_id)
-        if len(x) > 0 and len(y) > 0:
-            centroids[cell_id] = (np.mean(x), np.mean(y))
-        else:
-            centroids[cell_id] = None
-    return centroids
-
-def calculate_velocity_consecutive_frames(
-        cell_array,
-        time_between_frames,
-        filename
-):
-    n_frames = cell_array.shape[0]
-    unique_cell_ids = np.unique(cell_array[cell_array != 0])  # Exclude background ID
-
-    df_velocity = pd.DataFrame(unique_cell_ids, columns=['cell_id'])
-    velocities = {}
-
-    for frame_index in range(1, n_frames):  # Start from frame index 1 (not 0) to compare with t-1
-        if frame_index == 1 or frame_index % 10 == 0:
-            print(f"Processing Frame: {frame_index} out of {n_frames}")
-        column_name = f'v_frame_{frame_index-1}_to_{frame_index}'
-        velocities[column_name] = np.nan * np.ones(len(unique_cell_ids))  # Initialize column with NaNs
-
-        centroids_t = calculate_centroids_for_all_cells(cell_array[frame_index, :, :], unique_cell_ids)
-        centroids_t_minus_1 = calculate_centroids_for_all_cells(cell_array[frame_index - 1, :, :], unique_cell_ids)
-
-        for cell_id in unique_cell_ids:
-            centroid_t = centroids_t.get(cell_id)
-            centroid_t_minus_1 = centroids_t_minus_1.get(cell_id)
-
-            if centroid_t is None or centroid_t_minus_1 is None:
-                continue  # Skip if centroids can't be calculated
-
-            displacement = np.linalg.norm(np.array(centroid_t) - np.array(centroid_t_minus_1))
-            velocity = displacement / time_between_frames
-            
-            cell_index = df_velocity[df_velocity['cell_id'] == cell_id].index.item()
-            velocities[column_name][cell_index] = velocity
-
-    # Add velocities to the DataFrame
-    for key, value in velocities.items():
-        df_velocity[key] = value
-    df_velocity['filename'] = filename.replace('.zip', '')
-
-    return df_velocity
-
-def transform_velocity_df(
-        velocity_dict, 
-        transformed_dict,
-        max_velocity_value
-):
-    for key, df in velocity_dict.items():
-        # Melt the DataFrame
-        melted_df = pd.melt(df, id_vars=['cell_id', 'filename'], var_name='frame', value_name='velocity',
-                            value_vars=[col for col in df.columns if col.startswith('v_frame_')])
-        # Remove rows where 'velocity' is NaN and >= max_velocity_value
-        filtered_df = melted_df.dropna(subset=['velocity']).copy()
-        if max_velocity_value is not None:
-            filtered_df = filtered_df[filtered_df['velocity'] < max_velocity_value]
-        # Reset index
-        filtered_df.reset_index(drop=True, inplace=True)
-        # Adjust the 'frame' column to be an integer by extracting the first number in the naming pattern
-        filtered_df['frame'] = filtered_df['frame'].str.extract(r'(\d+)_to_').astype(int)
-        # Sort by 'cell_id' and 'frame'
-        filtered_df.sort_values(by=['frame', 'cell_id'], inplace=True)
-        # Store the transformed DataFrame in the new dictionary
-        transformed_dict[key] = filtered_df
-    return transformed_dict
-
-def combine_dataframes(
-        dataframe_dict, 
-        group_logic
-):
-    combined_dataframe_dict = {}
-    # Iterate over each group and its codes in group_logic
-    for group_name, codes in group_logic.items():
-        dfs_for_group = []
-        
-        # Iterate over each code in the current group
-        for code in codes:
-            # Filter keys (filenames) in dataframe_dict by current code
-            for filename in dataframe_dict:
-                if code in filename:
-                    dfs_for_group.append(dataframe_dict[filename])
-        
-        # Combine all DataFrames in the list into a single DataFrame
-        if dfs_for_group:
-            combined_df = pd.concat(dfs_for_group, ignore_index=True)
-            combined_df.sort_values('frame', inplace=True)
-            combined_df.reset_index(drop=True, inplace=True)
-            combined_dataframe_dict[group_name] = combined_df
-    
-    return combined_dataframe_dict
-
-def make_segmentation_plot(
-        title_prefix,
-        remove_perimeter_cell,
-        combined_dataframe_dict, 
-        plot_group_colors, 
-        test,
-        plot_name,
-        task_timestamp,
-        save_plot_path
-):
-    plt.figure(figsize=(14, 7))
-    color_iter = iter(plot_group_colors)  # Create an iterator over the colors list
-
-    for group_name, df_for_plot in combined_dataframe_dict.items():
-        if remove_perimeter_cell:
-            df_for_plot = df_for_plot[df_for_plot['perimeter_cell'] == False]
-
-        # Calculate mean cell_area for every individual frame
-        mean_cell_area_per_frame = df_for_plot.groupby('frame')['cell_area'].mean()
-        
-        # Calculate SEM for cell_area for every individual frame
-        sem_cell_area_per_frame = df_for_plot.groupby('frame')['cell_area'].apply(sem)
-
-        # Get the next color from the iterator
-        color = next(color_iter, 'gray')  # Default to 'gray' if the colors list is exhausted
-
-        # Plot the mean cell_area per frame with a line
-        plt.plot(mean_cell_area_per_frame.index, mean_cell_area_per_frame, lw=2, color=color, label=f'{group_name} Mean Cell Area')
-
-        # Add the error area for SEM
-        plt.fill_between(mean_cell_area_per_frame.index, mean_cell_area_per_frame - sem_cell_area_per_frame, 
-                         mean_cell_area_per_frame + sem_cell_area_per_frame, color=color, alpha=0.2, label=f'{group_name} Error')
-
-    if remove_perimeter_cell:
-        title_prefix = f"{title_prefix} (Excluding Perimeter Cells)"
-    plt.title(f'{title_prefix}: Mean Cell Area per Frame')
-    plt.xlabel('Frame')
-    plt.ylabel('Mean Cell Area')
-    plt.grid(True)
-    plt.legend(loc='upper left', bbox_to_anchor=(1,1))
-    plt.tight_layout()
-
-    if remove_perimeter_cell:
-        plot_name = f"{plot_name}_filtered_perimeter"
-
-    
-    plot_path_name = os.path.join(save_plot_path, f"{plot_name}_{task_timestamp}.pdf")
-
-    plt.savefig(plot_path_name)
-    plt.close()  # Close the figure to free memory
-    print(f"Plot saved: {plot_path_name}")
-
-def safe_sem(x):
-    return sem(x) if len(x) > 1 else np.NaN  # Return NaN if not enough data
-
-def make_velocity_plot(
-        group_type,
-        title_prefix,
-        combined_mask_dict, 
-        plot_group_colors, 
-        test,
-        plot_name,
-        task_timestamp,
-        save_plot_path
-):
-    plt.figure(figsize=(14, 7))
-    color_iter = iter(plot_group_colors)  # Create an iterator over the colors list
-
-    if group_type == 'individual':
-        print(f"Grouping by individual frame")
-        for group_name, df_for_plot in combined_mask_dict.items():
-
-            print(f"Processing: {group_name}")
-            # Calculate mean velocity for every individual frame
-            mean_velocity_per_frame = df_for_plot.groupby('frame')['velocity'].mean()
-            
-            # Calculate SEM for velocity for every individual frame
-            sem_velocity_per_frame = df_for_plot.groupby('frame')['velocity'].apply(safe_sem)
-
-            # Get the next color from the iterator
-            color = next(color_iter, 'gray')  # Default to 'gray' if the colors list is exhausted
-
-            # Plot the mean velocity per frame with a line
-            plt.plot(mean_velocity_per_frame.index, mean_velocity_per_frame, lw=2, color=color, label=f'{group_name} Mean Velocity')
-
-            # Add the error area for SEM
-            plt.fill_between(mean_velocity_per_frame.index, mean_velocity_per_frame - sem_velocity_per_frame, 
-                            mean_velocity_per_frame + sem_velocity_per_frame, color=color, alpha=0.2, label=f'{group_name} Error')
-
-        plt.title(f'{title_prefix}: Mean Velocity per Frame')
-        plt.xlabel('Frame')
-        plt.ylabel('Mean Velocity')
-        plt.grid(True)
-        plt.legend(loc='upper left', bbox_to_anchor=(1,1))
-        plt.tight_layout()
-
-        plot_path_name = os.path.join(save_plot_path, f"{plot_name}_{group_type}_{task_timestamp}.pdf")
-
-        plt.savefig(plot_path_name)
-        plt.close()  # Close the figure to free memory
-        print(f"Plot saved: {plot_path_name}")
-    if group_type == 'combined':
-        print(f"Grouping by frame group")
-        for group_name, df_for_plot in combined_mask_dict.items():
-            print(f"Processing: {group_name}")
-            # Create a 'frame group' column for grouping frames into sets of 50
-            df_for_plot['frame_group'] = df_for_plot['frame'] // 50
-
-            # Calculate mean velocity for every 'frame group'
-            mean_velocity_per_frame_group = df_for_plot.groupby('frame_group')['velocity'].mean()
-            
-            # Calculate SEM for velocity for every 'frame group'
-            sem_velocity_per_frame_group = df_for_plot.groupby('frame_group')['velocity'].apply(lambda x: sem(x) if len(x) > 1 else np.NaN)
-
-            # Get the next color from the iterator
-            color = next(color_iter, 'gray')  # Default to 'gray' if the colors list is exhausted
-
-            # Plot the mean velocity per 'frame group' with a line
-            plt.plot(mean_velocity_per_frame_group.index * 50, mean_velocity_per_frame_group, lw=2, color=color, label=f'{group_name} Mean Velocity')
-
-            # Add the error area for SEM
-            plt.fill_between(mean_velocity_per_frame_group.index * 50, mean_velocity_per_frame_group - sem_velocity_per_frame_group, 
-                            mean_velocity_per_frame_group + sem_velocity_per_frame_group, color=color, alpha=0.2, label=f'{group_name} Error')
-
-        plt.title(f'{title_prefix}: Mean Velocity per Frame Group')
-        plt.xlabel('Frame Group Start')
-        plt.ylabel('Mean Velocity')
-        plt.grid(True)
-        plt.legend(loc='upper left', bbox_to_anchor=(1,1))
-        plt.tight_layout()
-
-        plot_path_name = os.path.join(save_plot_path, f"{plot_name}_{group_type}_{task_timestamp}.pdf")
-
-        plt.savefig(plot_path_name)
-        plt.close()  # Close the figure to free memory
-        print(f"Plot saved: {plot_path_name}")
-
-def make_violin_plot(
-        test,
-        combined_mask_dict,
-        mask_name,
-        plot_name,
-        task_timestamp,
-        save_plot_path_violin
-):
-    # Create an empty DataFrame
-    all_data = pd.DataFrame()
-    
-    # Append all groups data into one DataFrame and add a 'Group' column
-    for group_name, df in combined_mask_dict.items():
-        df['Group'] = group_name
-        all_data = pd.concat([all_data, df], ignore_index=True)
-
-    # Setup the figure
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Creating violin plot on the specified Axes
-    sns.violinplot(ax=ax, x='Group', y='velocity', data=all_data)
-    
-    mask_name_title = mask_name.title().replace('_', ' ')
-    ax.set_title(f'Velocity Distribution Across Groups - {mask_name_title}')
-    ax.set_xlabel('Group')
-    ax.set_ylabel('Velocity')
-    
-    plt.tight_layout()
-    
-    plot_path_name = os.path.join(save_plot_path_violin, f"{plot_name}_{task_timestamp}.pdf")
-    
-    plt.savefig(plot_path_name)
-    plt.close(fig)  # Close the figure to free memory
-    print(f"Plot saved: {plot_path_name}")
-
-def identify_consecutive_frames(interaction_id_grouped):
-    # Calculate the difference between current and previous frames
-    interaction_id_grouped['frame_diff'] = interaction_id_grouped['frame'] - interaction_id_grouped['frame'].shift(1, fill_value=interaction_id_grouped['frame'].iloc[0])
-    
-    # Identify where frames are consecutive
-    interaction_id_grouped['is_consecutive'] = interaction_id_grouped['frame_diff'] == 1
-    
-    # Create unique identifiers for consecutive frame sequences
-    interaction_id_grouped['consec_group'] = (~interaction_id_grouped['is_consecutive']).cumsum()
-
-    # Extract the part of the filename between the first and second underscore
-    interaction_id_grouped['file_segment'] = interaction_id_grouped['filename'].apply(lambda x: x.split('_')[1])
-    # Form a unique identifier for each group combining 'file_segment', 'interaction_id', and 'consec_group'
-    interaction_id_grouped['unique_consec_group'] = interaction_id_grouped['file_segment'] + '_' + interaction_id_grouped['interaction_id'].astype(str) + '_group' + interaction_id_grouped['consec_group'].astype(str)
-    
-    # Now, enumerate the frames within each consecutive group
-    interaction_id_grouped['interaction_id_consec_frame'] = interaction_id_grouped.groupby('consec_group').cumcount() + 1
-    
-    return interaction_id_grouped
-
-def calculate_consecutive_frames(df_interactions_file):
-    # Sort the DataFrame by 'interaction_id' and 'frame'
-    df_sorted = df_interactions_file.sort_values(by=['interaction_id', 'frame'])
-
-    # Group by 'interaction_id'
-    interaction_id_grouped = df_sorted.groupby('interaction_id')
-
-    df_with_consec = interaction_id_grouped.apply(identify_consecutive_frames)
-    df_with_consec.reset_index(drop=True, inplace=True)
-    
-    # Drop intermediate columns used for computation
-    df_with_consec.drop(columns=['frame_diff', 'is_consecutive', 'consec_group', 'file_segment'], inplace=True)
-    
-    return df_with_consec
-
-def find_cell_interactions_with_counts(
-        t_cells,
-        cancer_cells,
-        filepath
-):
-    # Initialize an empty list to store DataFrames from each frame
-    all_interactions_data = []
-    
-    # Extract the start frame number from the filename, assuming a similar naming convention
-    start_frame = 1  # Default start frame
-    match = re.search(r'start_(\d+)_end_(\d+)', filepath)
-    if match:
-        start_frame = int(match.group(1))
-
-    for frame_idx in range(t_cells.shape[0]):
-        t_cell_frame = t_cells[frame_idx, :, :]
-        cancer_cell_frame = cancer_cells[frame_idx, :, :]
-        unique_t_cells = np.unique(t_cell_frame[t_cell_frame > 0])
-        
-        interaction_pairs = []
-        for t_cell_id in unique_t_cells:
-            t_cell_coords = np.argwhere(t_cell_frame == t_cell_id)
-            
-            for coord in t_cell_coords:
-                x, y = coord
-                neighbors = [(i, j) for i in range(max(0, x-1), min(t_cell_frame.shape[0], x+2))
-                            for j in range(max(0, y-1), min(t_cell_frame.shape[1], y+2))
-                            if (i, j) != (x, y)]
-                
-                for nx, ny in neighbors:
-                    if cancer_cell_frame[nx, ny] > 0:
-                        interaction_pairs.append((t_cell_id, cancer_cell_frame[nx, ny]))
-        
-        # Convert interactions to DataFrame and count duplicates
-        df_interactions = pd.DataFrame(interaction_pairs, columns=['t_cell_id', 'cancer_cell_id'])
-        df_interactions['contact_pixels'] = 1
-        df_interactions = df_interactions.groupby(['t_cell_id', 'cancer_cell_id']).count().reset_index()
-        df_interactions['filename'] = os.path.basename(filepath).replace('.zip', '')
-        
-        # Add the frame number to the DataFrame
-        df_interactions['frame'] = start_frame + frame_idx + 1
-        
-        all_interactions_data.append(df_interactions)
-    
-    # Concatenate all frame DataFrames into one
-    all_interactions_df = pd.concat(all_interactions_data, ignore_index=True)
-    
-    return all_interactions_df
-
-def classify_contact_pixels(pixels, Q1, Q3):
-    if pixels <= Q1:
-        return 'minimal'
-    elif pixels > Q1 and pixels <= Q3:
-        return 'medium'
-    else:
-        return 'high'
-
-def find_consecutive_interactions(
-        df, 
-        min_consecutive_frames
-):
-    # Step 1: Sort by 'filename'
-    df_sorted = df.sort_values(by=['filename'])
-
-    # Step 2: Group by 'filename', then sort by 'frame' and 'interaction_id'
-    df_sorted = df_sorted.groupby('filename', group_keys=False).apply(
-        lambda group: group.sort_values(by=['frame', 'interaction_id'])
-    )
-
-    # Step 3: Group by 'filename' and 'interaction_id'
-    grouped = df_sorted.groupby(['filename', 'interaction_id'])
-
-    # Step 4: Find and filter consecutive frames within each group
-    consecutive_interactions = []
-    for name, group in grouped:
-        # Detect where the frame number difference is not 1
-        non_consecutive = group['frame'].diff() != 1
-        
-        # Create unique groups for each sequence of consecutive frames
-        consec_groups = non_consecutive.cumsum()
-        
-        # Count the number of frames in each consecutive group
-        consec_counts = group.groupby(consec_groups).size()
-        
-        # Keep only the groups that meet the minimum consecutive frame threshold
-        valid_groups = consec_counts[consec_counts >= min_consecutive_frames].index
-
-        # Append valid groups to the list
-        for g in valid_groups:
-            consecutive_interactions.append(group[consec_groups == g])
-
-    # Return a DataFrame with all valid consecutive interactions
-    if consecutive_interactions:
-        return pd.concat(consecutive_interactions, ignore_index=True)
-    else:
-        return pd.DataFrame()
-
-def calculate_average_change(
-        group
-):
-    # Calculate the difference between consecutive rows for both areas without .abs()
-    group['t_cell_area_change'] = group['t_cell_area'].diff()
-    group['cancer_cell_area_change'] = group['cancer_cell_area'].diff()
-    
-    # Calculate the average change, ignoring NaN values from .diff() in the first row of each group
-    avg_t_cell_area_change = group['t_cell_area_change'].mean()
-    avg_cancer_cell_area_change = group['cancer_cell_area_change'].mean()
-    
-    return pd.Series({
-        'avg_t_cell_area_change': avg_t_cell_area_change,
-        'avg_cancer_cell_area_change': avg_cancer_cell_area_change
-    })
-
-def get_group_from_filename(
-        filename, 
-        group_logic
-):
-    for group, prefixes in group_logic.items():
-        if any(prefix in filename for prefix in prefixes):
-            return group
-    return None
-
-def filter_and_label(
-        group
-):
-    # Get the reference frame from frame_x
-    ref_frame = group['frame_x'].iloc[0]
-    
-    # Filter to include only frames within last 10 before frame_x plus the reference frame
-    condition = (group['frame_y'] <= ref_frame) & (group['frame_y'] > ref_frame - 11)
-    filtered_group = group[condition].copy()
-    
-    # Sort and label the last 10 frames plus the reference frame
-    if not filtered_group.empty:
-        filtered_group = filtered_group.sort_values(by='frame_y', ascending=False)
-        # Ensure the length of labels matches the number of rows
-        filtered_group['interaction_id_consec_frame'] = list(range(0, -len(filtered_group), -1))
-    
-    return filtered_group
-
-def calculate_cancer_cell_area_change(
-        interactions_df, 
-        area_df, 
-        filename, 
-        post_interaction_windows
-):
-    # Filter the data for interactions with the specified filename
-    interactions = interactions_df[interactions_df['filename'] == filename].copy()
-    
-    # Sort interactions by cancer_cell_id and frame
-    interactions.sort_values(by=['cancer_cell_id', 'frame'], inplace=True)
-    
-    # Initialize dictionary to hold changes for each window
-    changes = {window: [] for window in post_interaction_windows}
-
-    # Get the first and last frame numbers in the area_df for bounds checking
-    min_frame = area_df['frame'].min()
-    max_frame = area_df['frame'].max()
-    
-    # Group by cancer_cell_id and process interactions for each cancer cell
-    for cancer_cell_id, group in interactions.groupby('cancer_cell_id'):
-        first_interaction_frame = group['frame'].min()
-        last_interaction_frame = group['frame'].max()
-
-        # Find the area just before the first interaction
-        pre_interaction_areas = area_df[(area_df['cancer_cell_id'] == cancer_cell_id) &
-                                        (area_df['frame'] < first_interaction_frame) &
-                                        (area_df['filename'] == filename)]
-        
-        # If no pre-interaction area data is available, skip to the next cancer cell
-        if pre_interaction_areas.empty:
-            continue
-        
-        pre_interaction_area = pre_interaction_areas.nlargest(1, 'frame')['cancer_cell_area'].iloc[0]
-        
-        # Calculate area change for each window
-        for window in post_interaction_windows:
-            # Adjust post_interaction_frame if it goes beyond the recorded frames
-            post_interaction_frame = min(last_interaction_frame + window, max_frame)
-            
-            # Get post-interaction areas, up to and including the adjusted post_interaction_frame
-            post_interaction_areas = area_df[(area_df['cancer_cell_id'] == cancer_cell_id) &
-                                             (area_df['frame'] <= post_interaction_frame) &
-                                             (area_df['filename'] == filename)]
-            
-            # If no post-interaction area data is available, skip to the next window
-            if post_interaction_areas.empty:
-                continue
-            
-            # Use the area from the last available frame for the cancer cell
-            post_interaction_area = post_interaction_areas.nlargest(1, 'frame')['cancer_cell_area'].iloc[0]
-            
-            # Calculate the change in area
-            area_change = post_interaction_area - pre_interaction_area
-            
-            # Store the result
-            changes[window].append({
-                'cancer_cell_id': cancer_cell_id,
-                'area_change': area_change,
-                'start_frame': first_interaction_frame,
-                'end_frame': post_interaction_frame
-            })
-
-    # Convert the results to DataFrames
-    changes_dfs = {window: pd.DataFrame(data) for window, data in changes.items() if data}
-
-    return changes_dfs
-
-def make_cumulative_area_change_plot(
-        test,
-        df_consecutive_interactions_dict,
-        task_timestamp,
-):
-    cell_specific_columns = ['t_cell_area', 'cancer_cell_area']
-
-    for cell_specific_column in cell_specific_columns:
-        # Define the layout of the figure
-        fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(15, 15))  # 3 rows and 3 columns
-        fig.subplots_adjust(hspace=0.5, wspace=0.3)  # Adjust spacing between subplots
-
-        # Set the overall title for the figure
-        fig.suptitle(f'Cumulative Change in {cell_specific_column}', fontsize=16)
-
-        # To store min and max values for y-axis in each row
-        row_min_max = []
-
-        # First pass: Calculate the min and max 'area_change' values for each row
-        for key, df in df_consecutive_interactions_dict.items():
-            df.sort_values(by=['filename', 'interaction_id', 'frame'], inplace=True)
-            df['first_area'] = df.groupby(['unique_consec_group'])[cell_specific_column].transform('first')
-            df['area_change'] = df[cell_specific_column] - df['first_area']
-            
-            # Find the min and max 'area_change' in this DataFrame
-            min_area_change = df['area_change'].min()
-            max_area_change = df['area_change'].max()
-            row_min_max.append((min_area_change, max_area_change))
-
-        # Second pass: Plot the data, applying the min and max values per row
-        for row_idx, (key, df) in enumerate(df_consecutive_interactions_dict.items()):
-            groups = df['group'].unique()
-            # Retrieve min and max values for the current row
-            ymin, ymax = row_min_max[row_idx]
-            
-            for col_idx, group in enumerate(groups):
-                ax = axes[row_idx, col_idx]
-                group_data = df[df['group'] == group]
-                unique_consec_groups = group_data['unique_consec_group'].unique()
-                
-                for unique_group in unique_consec_groups:
-                    subgroup_data = group_data[group_data['unique_consec_group'] == unique_group]
-                    ax.plot(subgroup_data['interaction_id_consec_frame'], subgroup_data['area_change'], label=f'{unique_group}')
-                
-                ax.set_ylim([ymin - 5, ymax + 5])  # Set the same y-axis limits for all plots in the row
-                if key == 'consec_2':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥2')
-                if key == 'consec_5':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥5') 
-                if key == 'consec_10':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥10')
-                ax.set_xlabel('Consecutive Frames (Normalized Start Frame)')
-                ax.set_ylabel('Cumulative Area Change')
-                ax.grid(True)
-                # ax.legend()
-
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to make room for the suptitle
-        filename_prefix = 't_cell' if cell_specific_column == 't_cell_area' else 'cancer_cell'
-        plt.savefig(f'./plots/{filename_prefix}_cumulative_area_change_over_time_{task_timestamp}.pdf')
-        plt.close()
-
-def make_mean_area_change_plot(
-        test,
-        df_consecutive_interactions_dict, 
-        task_timestamp,
-        mean_area_color_map,
-):
-    cell_specific_columns = ['t_cell_area', 'cancer_cell_area']
-
-    # Assuming color_map is None or it's equivalent to having no predefined color_map
-    for cell_specific_column in cell_specific_columns:
-        # Define the layout of the figure for mean area change with standard error
-        fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(15, 15), sharex=True, sharey=True)
-        fig.subplots_adjust(hspace=0.5, wspace=0.3)
-        fig.suptitle(f'Mean Cumulative Change in {cell_specific_column} with Standard Error', fontsize=16)
-
-        # First pass: Calculate the min and max 'area_change' values for each row
-        row_min_max = []
-        for key, df in df_consecutive_interactions_dict.items():
-            df.sort_values(by=['filename', 'interaction_id', 'frame'], inplace=True)
-            df['first_area'] = df.groupby(['interaction_id'])[cell_specific_column].transform('first')
-            df['area_change'] = df[cell_specific_column] - df['first_area']
-
-            # Calculate mean and standard error for each 'interaction_id_consec_frame' across all instances within the group
-            frame_stats = df.groupby(['group', 'interaction_id_consec_frame'])['area_change'].agg(['mean', 'sem']).reset_index()
-            min_val = frame_stats['mean'] - frame_stats['sem']
-            max_val = frame_stats['mean'] + frame_stats['sem']
-            row_min_max.append((min_val.min(), max_val.max()))
-
-        # Second pass: Plot the mean and standard error data
-        for row_idx, (key, df) in enumerate(df_consecutive_interactions_dict.items()):
-            groups = df['group'].unique()
-
-            for col_idx, group in enumerate(groups):
-                ax = axes[row_idx, col_idx]
-                # Only plot frames where the group matches
-                frame_stats = df[df['group'] == group].groupby('interaction_id_consec_frame')['area_change'].agg(['mean', 'sem'])
-
-                ax.errorbar(frame_stats.index, frame_stats['mean'], yerr=frame_stats['sem'], fmt='-o', label=f'Group {group}', 
-                            color=mean_area_color_map.get(group, 'gray'),  # Use group color or default to gray
-                            ecolor='lightgray', elinewidth=2, capsize=0)  # Error bar color
-                
-                ymin, ymax = row_min_max[row_idx]  # Get min/max for setting y-axis limits
-                ax.set_ylim([ymin - 5, ymax + 5])
-                if key == 'consec_2':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥2')
-                if key == 'consec_5':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥5') 
-                if key == 'consec_10':
-                    ax.set_title(f'{group}: minimum consecutive frames ≥10')
-                ax.set_xlabel('Consecutive Frames')
-                ax.set_ylabel('Mean Cumulative Area Change')
-                ax.grid(True)
-                # ax.legend()
-
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        filename_prefix = 't_cell' if cell_specific_column == 't_cell_area' else 'cancer_cell'
-        plt.savefig(f'./plots/{filename_prefix}_mean_cumulative_area_change_over_time_{task_timestamp}.pdf')
-        plt.close()
-
-
-def make_cumulative_area_change_tbls(
-        test,
-        df_consecutive_interactions_dict,
-        task_timestamp,
-):
-    cell_specific_columns = ['t_cell_area', 'cancer_cell_area']
-
-    final_cumulative_area_change_summary_stats_df = pd.DataFrame()
-    for cell_specific_column in cell_specific_columns:
-        final_cumulative_area_change_summary_stats_df = pd.DataFrame()
-        for i, (key, df) in enumerate(df_consecutive_interactions_dict.items()):
-            df.sort_values(by=['filename', 'interaction_id', 'frame'], inplace=True)
-            df['first_area'] = df.groupby(['interaction_id'])[cell_specific_column].transform('first')
-            df['area_change'] = df[cell_specific_column] - df['first_area']
-            cell_groups = df['group'].unique()
-            for cell_group in cell_groups:
-                cell_data = df[df['group'] == cell_group]
-                cumulative_area_change_summary_stats = cell_data['area_change'].describe()
-                cumulative_area_change_summary_stats_df = pd.DataFrame(cumulative_area_change_summary_stats)
-                cumulative_area_change_summary_stats_df.rename(columns={'area_change': f'{cell_group}_{key}'}, inplace=True)
-                final_cumulative_area_change_summary_stats_df = pd.concat([final_cumulative_area_change_summary_stats_df, cumulative_area_change_summary_stats_df], axis=1)
-        filename_prefix = 't_cell' if 't_cell_area' in cell_specific_column else 'cancer_cell'
-        tbl_filename = f"./tables/{filename_prefix}_cumulative_area_change_summary_stats_{task_timestamp}.csv"
-        final_cumulative_area_change_summary_stats_df.to_csv(tbl_filename)
-        print(f"{cell_specific_column}:\n{final_cumulative_area_change_summary_stats_df}")
-        final_cumulative_area_change_summary_stats_df = pd.DataFrame()
-
-def make_cumulative_area_change_violinplot_subplots(
-        test,
-        df_consecutive_interactions_dict,
-        task_timestamp,
-):
-    cell_specific_columns = ['t_cell_area', 'cancer_cell_area']
-
-    for cell_specific_column in cell_specific_columns:
-        # Define the layout of the figure
-        fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 15))  # 3 rows and 1 column
-        fig.subplots_adjust(hspace=0.5)  # Adjust spacing between subplots
-
-        # Set the overall title for the figure
-        fig.suptitle(f'{cell_specific_column} Cumulative Change Violin Plots', fontsize=16)
-
-        # Iterate through each key and its corresponding DataFrame in the dictionary
-        for i, (key, df) in enumerate(df_consecutive_interactions_dict.items()):
-            df.sort_values(by=['filename', 'interaction_id', 'frame'], inplace=True)
-            df['first_area'] = df.groupby(['interaction_id'])[cell_specific_column].transform('first')
-            df['area_change'] = df[cell_specific_column] - df['first_area']
-
-            # Select the subplot
-            ax = axes[i] if len(df_consecutive_interactions_dict) > 1 else axes
-
-            # Create violin plot
-            sns.violinplot(x='group', y='area_change', data=df, ax=ax, scale='width', palette="Set3")
-            if key == 'consec_2':
-                ax.set_title(f'minimum consecutive frames >2')
-            if key == 'consec_5':
-                ax.set_title(f'minimum consecutive frames >5') 
-            if key == 'consec_10':
-                ax.set_title(f'minimum consecutive frames >10')
-            ax.set_ylabel('Cumulative Change in Area')
-            ax.set_xlabel('Group')
-
-        # Save the figure
-        filename_prefix = 't_cell' if 't_cell_area' in cell_specific_column else 'cancer_cell'
-        plt.savefig(f'./plots/{filename_prefix}_violin_cumulative_area_change_over_time_{task_timestamp}.pdf')
-        plt.close()
+from occident.tracking import get_group_from_filename
+from occident.utils import mean_confidence_interval, estimate_se
 
 def make_roundness_plot_and_table(
         input_df,
@@ -876,6 +21,27 @@ def make_roundness_plot_and_table(
         base_save_roundness_table_filename,
         base_save_roundness_plot_filename
 ):
+    """
+    Generates a roundness plot and summary table for T cell data.
+
+    This function calculates the mean roundness and confidence intervals for different groups of T cells
+    based on the input DataFrame. It performs pairwise t-tests between the groups to determine statistical 
+    significance and calculates z-scores. The results are saved in a CSV file and a bar plot of the average 
+    roundness with 95% confidence interval is generated and saved.
+
+    Parameters:
+    - input_df: DataFrame containing T cell data, including 't_cell_id', 't_cell_roundness', and 'filename'.
+    - group_logic: Logic for grouping the data based on the filename.
+    - colors: Dictionary mapping group names to specific colors for plotting.
+    - task_timestamp: Timestamp used for saving the output files.
+    - base_save_roundness_table_filename: Base filename for saving the summary table CSV.
+    - base_save_roundness_plot_filename: Base filename for saving the roundness plot.
+
+    Outputs:
+    - Saves a CSV file with the summary statistics and statistical test results.
+    - Saves a bar plot image file showing the average roundness with confidence intervals by group.
+    """
+
     roundness_df = input_df[['t_cell_id', 't_cell_roundness', 'filename']].copy()
     roundness_df['group'] = roundness_df['filename'].apply(lambda x: get_group_from_filename(x, group_logic))
     # Group by 'group' and calculate the mean and CI
@@ -961,6 +127,20 @@ def make_cancer_cell_barplots(
         task_timestamp,
         base_save_cancer_barplots_filename
 ):
+    """
+    Generates a bar plot of the mean and 95% CI of the cancer cell metrics (cell_area, cell_perimeter, cell_roundness) 
+    for each group of cancer cells.
+
+    Parameters:
+    - input_df: DataFrame containing cancer cell data, including 'cell_id', 'frame', 'filename', and the metric of interest.
+    - group_logic: Logic for grouping the data based on the filename.
+    - colors: Dictionary mapping group names to specific colors for plotting.
+    - task_timestamp: Timestamp used for saving the output files.
+    - base_save_cancer_barplots_filename: Base filename for saving the bar plots.
+
+    Outputs:
+    - Saves a bar plot image file showing the average of the given metric with 95% CI by group for each metric.
+    """
     input_df['group'] = input_df['filename'].apply(lambda x: get_group_from_filename(x, group_logic))
     input_df['group'] = input_df['group'].replace({
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1012,25 +192,35 @@ def make_cancer_cell_barplots(
         plt.savefig(save_cancer_barplots_filename, transparent=True)
         plt.close()
 
-
-def mean_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = np.count_nonzero(~np.isnan(a))  # Count non-NaN entries
-    if n == 0:
-        return np.nan, np.nan, np.nan  # Return NaN if all are NaNs
-    mean = np.nanmean(a)
-    se = scipy.stats.sem(a, nan_policy='omit')
-    h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
-    return mean, mean-h, mean+h
-
-def estimate_se(ci_lower, ci_upper):
-    return (ci_upper - ci_lower) / (2 * 1.96)
-
 def compare_groups(
         results_df, 
         base_group_name, 
         subset_comparison_groups
 ):
+    """
+    Compare statistical metrics between a base group and multiple comparison groups.
+
+    This function performs pairwise t-tests between a specified base group and a subset of comparison groups
+    for each metric and group present in the results DataFrame. It calculates the t-statistic, p-value, and
+    applies a Bonferroni correction to adjust for multiple comparisons.
+
+    Parameters:
+    - results_df: pd.DataFrame
+        DataFrame containing the results data with columns for 'metric', 'group', 'mean', '95_ci_lower',
+        '95_ci_upper', and 'n' for each frame group.
+    - base_group_name: str
+        The name of the frame group to be used as the base for comparisons.
+    - subset_comparison_groups: list of str
+        A list of frame group names to be compared against the base group.
+
+    Returns:
+    - pd.DataFrame
+        A DataFrame containing the comparison results with columns for 'base_group', 'comparison_group',
+        'metric', 'group', 'base_mean', 'base_lower_ci', 'base_upper_ci', 'base_se', 'base_n',
+        'comparison_mean', 'comparison_lower_ci', 'comparison_upper_ci', 'comparison_se', 'comparison_n',
+        'p_value', 'z_score', and 'bonferroni_correction'.
+    """
+
     comparisons = []
     total_comparisons = len(subset_comparison_groups) * len(results_df['metric'].unique()) * len(results_df['group'].unique()) # for bonferroni_p correction
 
@@ -1090,6 +280,29 @@ def make_comparison_tables(
         task_timestamp, 
         base_filename
 ):
+    """
+    Function to generate comparison tables for cell tracking data.
+
+    Parameters
+    ----------
+    input_df : pandas.DataFrame
+        DataFrame containing cell tracking data.
+    task_timestamp : str
+        Timestamp from when the data was generated. Used to generate filename.
+    base_filename : str
+        Base filename for the output files.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    This function generates comparison tables between different frame groups. The comparisons are calculated as follows:
+    - For each frame group, calculate the mean and 95% confidence intervals for each metric.
+    - Perform a two-sample t-test to compare the means of each metric between the frame groups.
+    - Apply a Bonferroni correction to the p-values.
+    """
     for consec_frame_group in input_df['consec_frame_group'].unique():
         df = input_df[input_df['consec_frame_group'] == consec_frame_group]
 
@@ -1150,11 +363,39 @@ def make_comparison_tables(
             filename = base_filename.format(consec_frame_group=consec_frame_group, base_group=in_text_base_group, task_timestamp=task_timestamp)
             selected_df.to_csv(filename, index=False)
 
+
+
+
+
 def calculate_regression_metrics(
         df, 
         x_col, 
         y_cols
 ):
+    """
+    Calculates linear regression metrics for specified columns in a DataFrame.
+
+    For each column in `y_cols`, this function performs a linear regression with `x_col`
+    as the independent variable and calculates the slope, intercept, standard error, and
+    95% confidence intervals for the slope.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data for regression analysis.
+    x_col : str
+        Column name in `df` to be used as the independent variable.
+    y_cols : list of str
+        List of column names in `df` to be used as dependent variables.
+
+    Returns
+    -------
+    dict
+        A dictionary where each key is a column name from `y_cols`, and each value is
+        another dictionary containing the regression metrics: 'slope', 'intercept', 'se',
+        '95_ci_lower', and '95_ci_upper'.
+    """
+
     regression_results = {}
     for y_col in y_cols:
         regression = linregress(df[x_col], df[y_col])
@@ -1179,6 +420,29 @@ def make_linear_regression_tables(
         task_timestamp,
         base_linear_regression_filename
 ):
+    """
+    Function to generate comparison tables for linear regression analysis of cell tracking data.
+
+    Parameters
+    ----------
+    input_df : pandas.DataFrame
+        DataFrame containing cell tracking data.
+    task_timestamp : str
+        Timestamp from when the data was generated. Used to generate filename.
+    base_linear_regression_filename : str
+        Base filename for the output file.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    This function generates comparison tables for linear regression analysis of cell tracking data. The comparisons are calculated as follows:
+    - For each frame group, calculate the mean and 95% confidence intervals for each metric.
+    - Perform a two-sample t-test to compare the means of each metric between the frame groups.
+    - Apply a Bonferroni correction to the p-values.
+    """
     keywords = ['area', 'perimeter', 'roundness'] # 'velocity'
     relevant_columns = [col for col in input_df.columns if any(keyword in col for keyword in keywords)]
 
@@ -1269,132 +533,6 @@ def make_linear_regression_tables(
 
     final_df.to_csv(base_linear_regression_filename.format(task_timestamp=task_timestamp), index=False)
 
-def average_metric_barplots(
-        input_df, 
-        colors, 
-        task_timestamp, 
-        base_average_metric_filenames
-):
-    for consec_frame_group in input_df['consec_frame_group'].unique():
-        df = input_df[input_df['consec_frame_group'] == consec_frame_group]
-        average_metric_filenames = base_average_metric_filenames.format(consec_frame_group=consec_frame_group, task_timestamp=task_timestamp)
-
-        df['group'] = df['group'].replace({
-            'safe_harbor_ko': 'Safe Harbor KO',
-            'rasa2_ko': 'RASA2 KO',
-            'cul5_ko': 'CUL5 KO'
-        })
-        columns_of_interest = [col for col in df.columns if any(kw in col for kw in ['area', 'perimeter', 'roundness'])]
-        results = []
-        for group in df['group'].unique():
-            group_df = df[df['group'] == group]
-            # Calculate mean and confidence intervals for frame group -10 to -1
-            combined_group = group_df[group_df['interaction_id_consec_frame'].between(-10, -1)]
-            for col in columns_of_interest:
-                if not combined_group.empty:
-                    mean, lower, upper = mean_confidence_interval(combined_group[col])
-                    results.append({'frame_group': '-10 to -1', 'group': group, 'metric': col, 'mean': mean, '95_ci_lower': lower, '95_ci_upper': upper})
-                else:
-                    results.append({'frame_group': '-10 to -1', 'group': group, 'metric': col, 'mean': None, '95_ci_lower': None, '95_ci_upper': None})
-            # Calculate mean and confidence intervals for frame group -10 to 0
-            combined_group_10_to_0 = group_df[group_df['interaction_id_consec_frame'].between(-10, 0)]
-            for col in columns_of_interest:
-                if not combined_group_10_to_0.empty:
-                    mean, lower, upper = mean_confidence_interval(combined_group_10_to_0[col])
-                    results.append({'frame_group': '-10 to 0', 'group': group, 'metric': col, 'mean': mean, '95_ci_lower': lower, '95_ci_upper': upper})
-                else:
-                    results.append({'frame_group': '-10 to 0', 'group': group, 'metric': col, 'mean': None, '95_ci_lower': None, '95_ci_upper': None})
-            # Calculate mean and confidence intervals for each group from 0 to 10
-            for frame in range(0, 11):  # from 0 to 10
-                frame_group_df = group_df[group_df['interaction_id_consec_frame'] == frame]
-                for col in columns_of_interest:
-                    if not frame_group_df.empty:
-                        mean, lower, upper = mean_confidence_interval(frame_group_df[col])
-                        results.append({'frame_group': frame, 'group': group, 'metric': col, 'mean': mean, '95_ci_lower': lower, '95_ci_upper': upper})
-                    else:
-                        results.append({'frame_group': frame, 'group': group, 'metric': col, 'mean': None, '95_ci_lower': None, '95_ci_upper': None})
-        # Convert results to DataFrame
-        results_df = pd.DataFrame(results)
-
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        for ax, metric in zip(axes, columns_of_interest):
-            metric_data = results_df[results_df['metric'] == metric].copy()
-            bar_plot = sns.barplot(data=metric_data, x='frame_group', y='mean', hue='group', 
-                        palette=colors, capsize=.2, ax=ax)
-            for bar, idx in zip(bar_plot.patches, range(len(bar_plot.patches))):
-                height = bar.get_height()
-                x = bar.get_x() + bar.get_width() / 2
-                err_lower = metric_data.iloc[idx // 3]['mean'] - metric_data.iloc[idx // 3]['95_ci_lower']
-                err_upper = metric_data.iloc[idx // 3]['95_ci_upper'] - metric_data.iloc[idx // 3]['mean']
-                ax.errorbar(x, height, yerr=[[err_lower], [err_upper]], fmt='none', capsize=5, color='black', elinewidth=1, capthick=1)
-            ax.set_title(f'Mean {metric.replace("_", " ").title()} with 95% Confidence Intervals')
-            ax.set_xlabel('Frame Group')
-            ax.set_ylabel(f'Mean {metric.replace("_", " ").title()}')
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
-            ax.legend(loc='lower right', bbox_to_anchor=(1, 0))
-        plt.tight_layout()
-        plt.savefig(average_metric_filenames, dpi=300, bbox_inches='tight')
-        plt.close()
-
-def individual_average_metric_barplots(
-        input_df, 
-        colors, 
-        task_timestamp, 
-        base_average_metric_filenames
-):
-    for consec_frame_group in input_df['consec_frame_group'].unique():
-        df = input_df[input_df['consec_frame_group'] == consec_frame_group]
-        average_metric_filenames = base_average_metric_filenames.format(consec_frame_group=consec_frame_group, task_timestamp=task_timestamp)
-
-        df['group'] = df['group'].replace({
-            'safe_harbor_ko': 'Safe Harbor KO',
-            'rasa2_ko': 'RASA2 KO',
-            'cul5_ko': 'CUL5 KO'
-        })
-        columns_of_interest = [col for col in df.columns if any(kw in col for kw in ['area', 'perimeter', 'roundness'])]
-        results = []
-        for group in df['group'].unique():
-            group_df = df[df['group'] == group]
-            # Group for frames -10 to -1
-            combined_group = group_df[group_df['interaction_id_consec_frame'].between(-10, -1)]
-            for col in columns_of_interest:
-                if not combined_group.empty:
-                    mean, lower, upper = mean_confidence_interval(combined_group[col])
-                    results.append({'frame_group': '-10 to -1', 'group': group, 'metric': col, 'mean': mean, '95_ci_lower': lower, '95_ci_upper': upper})
-                else:
-                    results.append({'frame_group': '-10 to -1', 'group': group, 'metric': col, 'mean': None, '95_ci_lower': None, '95_ci_upper': None})
-            # Calculate mean and confidence intervals for each group from 0 to 10
-            for frame in range(0, 11):  # from 0 to 10
-                frame_group_df = group_df[group_df['interaction_id_consec_frame'] == frame]
-                for col in columns_of_interest:
-                    if not frame_group_df.empty:
-                        mean, lower, upper = mean_confidence_interval(frame_group_df[col])
-                        results.append({'frame_group': frame, 'group': group, 'metric': col, 'mean': mean, '95_ci_lower': lower, '95_ci_upper': upper})
-                    else:
-                        results.append({'frame_group': frame, 'group': group, 'metric': col, 'mean': None, '95_ci_lower': None, '95_ci_upper': None})
-        results_df = pd.DataFrame(results)
-
-        for metric in columns_of_interest:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            metric_data = results_df[results_df['metric'] == metric].copy()
-            # metric_data.sort_values(by=['frame_group', 'group'], inplace=True)  # sorted data -- REMOVE SORT BECAUSE IT RUINS THE X-AXIS ORDER
-            bar_plot = sns.barplot(data=metric_data, x='frame_group', y='mean', hue='group', 
-                                palette=colors, capsize=.2, ax=ax)
-            for bar, idx in zip(bar_plot.patches, range(len(bar_plot.patches))):
-                height = bar.get_height()
-                x = bar.get_x() + bar.get_width() / 2
-                err_lower = metric_data.iloc[idx // 3]['mean'] - metric_data.iloc[idx // 3]['95_ci_lower']
-                err_upper = metric_data.iloc[idx // 3]['95_ci_upper'] - metric_data.iloc[idx // 3]['mean']
-                ax.errorbar(x, height, yerr=[[err_lower], [err_upper]], fmt='none', capsize=5, color='black', elinewidth=1, capthick=1)
-            ax.set_title(f'Mean {metric.replace("_", " ").title()} with 95% Confidence Intervals')
-            ax.set_xlabel('Frame Group')
-            ax.set_ylabel(f'Mean {metric.replace("_", " ").title()}')
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
-            ax.legend(loc='best')
-            plt.tight_layout()
-            plt.savefig(average_metric_filenames.replace('.pdf', f'_{metric}.pdf'), dpi=300, bbox_inches='tight')
-            plt.close()
-
 def make_interaction_analysis_plots(
         df_consecutive_interactions_dict,
         colors,
@@ -1404,6 +542,31 @@ def make_interaction_analysis_plots(
         base_interaction_distribution_plot_filename,
         base_interaction_distribution_over_time_plot_filename
 ):
+    """
+    Function to generate various analysis plots and tables from a DataFrame
+    containing consecutive frames of cell interactions.
+
+    Parameters
+    ----------
+    df_consecutive_interactions_dict : dict
+        Dictionary containing DataFrames with consecutive frames of cell interactions.
+    colors : dict
+        Dictionary containing colors to use for each group in the plots.
+    task_timestamp : str
+        Timestamp to include in the filenames of the output files.
+    base_unique_interaction_table_filename : str
+        Base filename for the unique interactions table.
+    base_interaction_distribution_table_filename : str
+        Base filename for the interaction distribution table.
+    base_interaction_distribution_plot_filename : str
+        Base filename for the interaction distribution plot.
+    base_interaction_distribution_over_time_plot_filename : str
+        Base filename for the interaction distribution over time plot.
+
+    Returns
+    -------
+    None
+    """
     # Assuming consec_2_df is your input DataFrame already loaded from a dictionary
     consec_2_df = df_consecutive_interactions_dict['consec_2']
     consec_2_df['group'] = consec_2_df['group'].replace({
@@ -1520,6 +683,23 @@ def plot_perimeter_area_roundness_velocity(
         colors, 
         plot_filename
 ):
+    """
+    Plot T Cell or Cancer Cell metrics subplots for ≥2, ≥5, and ≥10 minimum consecutive frames.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data to plot, with columns 'group', 'consec_frame_group', 'interaction_id_consec_frame', and the desired metrics (e.g. 't_cell_perimeter', 't_cell_area', 't_cell_roundness', 't_cell_velocity').
+    colors : dict
+        Dictionary mapping group names to colors for the plot.
+    plot_filename : str
+        Filename to save the plot to.
+
+    Notes
+    -----
+    The function will create a figure with 4x3 subplots to accommodate the additional metric row, and share the x-axis between the columns. The y-axis limits are set to the minimum and maximum of the data for each row, and the legend is only shown in the first plot of each row. The plot is saved to the specified filename.
+
+    """
     # Standardize group names
     df['group'] = df['group'].replace({
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1590,9 +770,33 @@ def plot_perimeter_area_roundness_velocity(
 def plot_metrics_individual(
         df, 
         colors, 
-        plot_filename_base,  # Base filename to append details to for saving each plot
+        plot_filename_base,
         timestamp
 ):
+    """
+    Plots individual metrics (Perimeter, Area, Roundness, and Velocity) for T Cells or Cancer Cells over consecutive frames.
+
+    This function generates line plots for specified metrics across different groups of cell interactions, separated by 
+    minimum consecutive frames. The plots are saved as PDF files.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data to plot, with columns 'group', 'consec_frame_group', 'interaction_id_consec_frame', 
+        and the desired metrics (e.g., 't_cell_perimeter', 't_cell_area', 't_cell_roundness', 't_cell_velocity').
+    colors : dict
+        A dictionary mapping group names to specific colors used in plotting.
+    plot_filename_base : str
+        Base filename to append details to for saving each plot.
+    timestamp : str
+        A timestamp string to include in the filename for each plot for uniqueness.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - Plots include error bands representing a 95% confidence interval.
+    - Each metric for each group of consecutive frames is saved as an individual plot.
+    """
     # Standardize group names
     df['group'] = df['group'].replace({
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1657,6 +861,28 @@ def plot_t_cell_segmentation_morphology_metrics(
         base_all_t_cell_morphology_over_time_filename,
         task_timestamp
 ):
+    """
+    Plot mean morphology metrics for T cells over time, comparing attached and all T cells.
+
+    Parameters
+    ----------
+    attached_grouped_results : DataFrame
+        Dataframe with grouped results for attached T cells.
+    all_grouped_results : DataFrame
+        Dataframe with grouped results for all T cells.
+    colors : dict
+        Mapping of group names to colors.
+    base_attached_t_cell_morphology_over_time_filename : str
+        Base filename for saving the plots.
+    base_all_t_cell_morphology_over_time_filename : str
+        Base filename for saving the plots.
+    task_timestamp : str
+        Timestamp for the task.
+
+    Returns
+    -------
+    None
+    """
     # Standardize group names
     for df in [attached_grouped_results, all_grouped_results]:
         df['group'] = df['group'].replace({
@@ -1717,8 +943,31 @@ def plot_t_cell_segmentation_morphology_metrics(
         plt.savefig(all_filename, transparent=True)
         plt.close()
 
-
 def plot_data(df, metric, title, colors, ax):
+    """
+    Plots the mean of a specified metric over frames for different groups within a DataFrame.
+    Helper function for plot_t_cell_segmentation_morphology_metrics.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data to plot, with columns 'group', 'frame', and '{metric}_mean' and '{metric}_sem'.
+    metric : str
+        The metric to plot (e.g., 'cell_area', 'cell_perimeter', 'cell_roundness').
+    title : str
+        The title for the y-axis of the plot.
+    colors : dict
+        A dictionary mapping group names to specific colors used in plotting.
+    ax : matplotlib.axes.Axes
+        The matplotlib axes object where the plot will be drawn.
+
+    Notes
+    -----
+    - The function creates a line plot for each group in the DataFrame, with shaded error bands representing
+      the standard error of the mean (SEM).
+    - The x-axis represents the 'frame', and the y-axis represents the mean value of the specified metric.
+    """
+
     for group in df['group'].unique():
         group_data = df[df['group'] == group]
         x = group_data['frame']
@@ -1740,6 +989,31 @@ def plot_individual_t_cell_segmentation_morphology_metrics(
         base_all_and_attached_t_cell_morphology_over_time_filename,
         task_timestamp
 ):
+    """
+    Plots individual metrics (Perimeter, Area, Roundness) for T cells (attached and all) over consecutive frames.
+
+    This function generates line plots for specified metrics across different groups of cell interactions, separated by 
+    minimum consecutive frames. The plots are saved as PDF files.
+
+    Parameters
+    ----------
+    attached_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for attached T cells.
+    all_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for all T cells.
+    individual_colors : dict
+        Mapping of group names to specific colors used in plotting.
+    base_all_and_attached_t_cell_morphology_over_time_filename : str
+        Base filename for saving the plots.
+    task_timestamp : str
+        Timestamp for the task.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - Plots include error bands representing a 95% confidence interval.
+    - Each metric for each group of consecutive frames is saved as an individual plot.
+    """
     # Standardize group names
     group_replacements = {
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1793,6 +1067,31 @@ def plot_individual_and_clumped_cancer_cell_segmentation_morphology_metrics(
         base_single_and_clumped_cancer_cell_morphology_over_time_filename,
         task_timestamp
 ):
+    """
+    Plots individual metrics (Perimeter, Area, Roundness) for Cancer Cells (clumped and individual) over consecutive frames.
+
+    This function generates line plots for specified metrics across different groups of cell interactions, separated by 
+    minimum consecutive frames. The plots are saved as PDF files.
+
+    Parameters
+    ----------
+    cancer_nuc_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for Cancer Cells.
+    cancer_samdcl_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for Cancer Cell Clumps.
+    cancer_individual_colors : dict
+        Mapping of group names to specific colors used in plotting.
+    base_single_and_clumped_cancer_cell_morphology_over_time_filename : str
+        Base filename for saving the plots.
+    task_timestamp : str
+        Timestamp for the task.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - Plots include error bands representing a 95% confidence interval.
+    - Each metric for each group of consecutive frames is saved as an individual plot.
+    """
     # Standardize group names
     group_replacements = {
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1849,6 +1148,38 @@ def plot_individual_or_clumped_cancer_cell_segmentation_morphology_and_compute_s
         base_clumped_cancer_cell_morphology_over_time_table_filename,
         task_timestamp
 ):
+    """
+    Plots cancer cell segmentation morphology metrics and computes summary statistics for individual and clumped cells.
+
+    This function creates line plots for specified metrics (Area, Perimeter, Roundness) across different groups of 
+    cancer cell interactions, both for individual and clumped cells. It computes and saves summary statistics 
+    (mean, upper and lower 95% confidence intervals, and standard error) to CSV files, and saves the plots as PDF files.
+
+    Parameters
+    ----------
+    cancer_nuc_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for individual cancer cells.
+    cancer_samdcl_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for clumped cancer cells.
+    colors : dict
+        Mapping of group names to specific colors used in plotting.
+    base_single_cancer_cell_morphology_over_time_filename : str
+        Base filename for saving plots of individual cancer cells.
+    base_clumped_cancer_cell_morphology_over_time_filename : str
+        Base filename for saving plots of clumped cancer cells.
+    base_single_cancer_cell_morphology_over_time_table_filename : str
+        Base filename for saving summary statistics of individual cancer cells.
+    base_clumped_cancer_cell_morphology_over_time_table_filename : str
+        Base filename for saving summary statistics of clumped cancer cells.
+    task_timestamp : str
+        Timestamp for the task to ensure unique filenames.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - Plots include error bands representing a 95% confidence interval.
+    - Summary statistics are calculated and saved for each metric and group type.
+    """
     # Define the metrics to plot
     metrics_info = {
         'cell_area': 'Area',
@@ -1912,6 +1243,30 @@ def plot_individual_or_clumped_cancer_cell_segmentation_morphology_and_compute_s
             plt.close()
 
 def plot_data_individual(df, metric, title, color, label, ax):
+    """
+    Plot the mean of a specified metric over frames for a single group within a DataFrame.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data to plot, with columns 'frame', '{metric}_mean', and '{metric}_sem'.
+    metric : str
+        The metric to plot (e.g., 'cell_area', 'cell_perimeter', 'cell_roundness').
+    title : str
+        The title for the y-axis of the plot.
+    color : str
+        The color for the line and error shading.
+    label : str
+        The label for the legend.
+    ax : matplotlib.axes.Axes
+        The matplotlib axes object where the plot will be drawn.
+
+    Notes
+    -----
+    - The function creates a line plot for the group, with shaded error bands representing
+      the standard error of the mean (SEM).
+    - The x-axis represents the 'frame', and the y-axis represents the mean value of the specified metric.
+    """
     group_data = df
     x = group_data['frame']
     y = group_data[f'{metric}_mean']
@@ -1925,6 +1280,31 @@ def plot_cell_area_sum_with_ci(
     task_timestamp,
     colors
 ):
+    """
+    Plots the sum of cell areas over time with 95% confidence intervals for different groups of clumped cancer cells.
+
+    This function processes a DataFrame containing cancer cell data, calculates the sum of cell areas 
+    for each well, and then computes the mean and standard error of the mean (SEM) for each group of cells 
+    over time. It plots these values with shaded error bands representing the 95% confidence intervals.
+
+    Parameters
+    ----------
+    cancer_samdcl_df : pandas.DataFrame
+        DataFrame containing data of clumped cancer cells with columns 'frame', 'group', 'filename', and 'cell_area'.
+    base_clumped_cancer_cell_morphology_sum_over_time_filename : str
+        Base filename for saving the plot.
+    task_timestamp : str
+        Timestamp for the task, used to ensure unique filenames.
+    colors : dict
+        Mapping of group names to specific colors used in plotting.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - The plot includes error bands representing a 95% confidence interval.
+    - The plot is saved as a PDF file.
+    """
+
     data_df = cancer_samdcl_df.copy()
     data_df['group'] = data_df['group'].replace({
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -1992,6 +1372,32 @@ def plot_individual_and_clumped_cancer_cell_area_ratio(
         base_cancer_individual_clumped_area_ratio_over_time_filename, 
         task_timestamp
 ):
+    """
+    Plots the ratio of cell areas between clumped and individual cancer cells over time for different groups.
+
+    This function processes two DataFrames containing grouped results for individual and clumped cancer cells,
+    calculates the ratio of cell areas and errors for each group over time, and then plots these values with
+    shaded error bands representing the standard error of the mean (SEM).
+
+    Parameters
+    ----------
+    cancer_nuc_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for individual cancer cells.
+    cancer_samdcl_grouped_results : pandas.DataFrame
+        DataFrame containing grouped results for clumped cancer cells.
+    colors : dict
+        Mapping of group names to specific colors used in plotting.
+    base_cancer_individual_clumped_area_ratio_over_time_filename : str
+        Base filename for saving the plot.
+    task_timestamp : str
+        Timestamp for the task, used to ensure unique filenames.
+
+    Notes
+    -----
+    - The function standardizes group names for consistency in plotting.
+    - The plot includes error bands representing a 95% confidence interval.
+    - The plot is saved as a PDF file.
+    """
     # Standardize group names
     groups = {
         'safe_harbor_ko': 'Safe Harbor KO',
@@ -2065,6 +1471,25 @@ def plot_cancer_cell_segmentation_morphology_metrics(
         base_cancer_cell_morphology_over_time_filename,
         task_timestamp
 ):
+    """
+    Plot mean morphology metrics for cancer cells over time, comparing different groups.
+
+    Parameters
+    ----------
+    cancer_samdcl_grouped_results : DataFrame
+        Dataframe with grouped results for cancer cells.
+    colors : dict
+        Mapping of group names to colors.
+    base_cancer_cell_morphology_over_time_filename : str
+        Base filename for saving the plots.
+    task_timestamp : str
+        Timestamp for the task.
+
+    Returns
+    -------
+    None
+    """
+    # Standardize group names
     cancer_samdcl_grouped_results['group'] = cancer_samdcl_grouped_results['group'].replace({
         'safe_harbor_ko': 'Safe Harbor KO',
         'rasa2_ko': 'RASA2 KO',
@@ -2112,12 +1537,28 @@ def plot_cancer_cell_segmentation_morphology_metrics(
         plt.savefig(cancer_cell_morphology_over_time_filename, transparent=True)
         plt.close()
 
+
 def run_linear_regression_tests(
         cell_combined_dict,
         task_timestamp,
         base_linear_regression_model_summary_table
 ):
     
+    """
+    Runs linear regression tests on a set of T cell metrics.
+
+    Parameters:
+    ----------
+    cell_combined_dict : dict
+        A dictionary containing the combined data for each group.
+    task_timestamp : str
+        A string representing the timestamp of the task.
+    base_linear_regression_model_summary_table : str
+        A string representing the base filename for the linear regression model summary table.
+
+    Returns:
+    None
+    """
     prefix = 't_cell'
     metrics = [f'{prefix}_perimeter', f'{prefix}_area', f'{prefix}_roundness', f'{prefix}_velocity']
 
@@ -2220,6 +1661,9 @@ def run_linear_regression_tests(
     linear_regression_model_summary_table = base_linear_regression_model_summary_table.format(task_timestamp=task_timestamp)
     model_summary_df.to_csv(linear_regression_model_summary_table, index=False)
 
+
+
+
 def run_linear_regression_tests_nontracking_data(
         combined_ratio_df, 
         cancer_nuc_df,
@@ -2228,6 +1672,7 @@ def run_linear_regression_tests_nontracking_data(
 ):
     
     # CLUMPED/SINGLE CELL AREA RATIO
+    
     model_stats_list = []
     metric = "cell_area_ratio"
     print(f"\nRunning Linear Regression Test for {metric}")
