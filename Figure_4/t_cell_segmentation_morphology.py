@@ -16,7 +16,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
 sys.path.append(os.path.expanduser('.'))
-from Figure_4.cell_tracking_helper_functions import(
+from cell_tracking_helper_functions import(
     make_cancer_cell_barplots,
     plot_t_cell_segmentation_morphology_metrics,
     plot_individual_t_cell_segmentation_morphology_metrics,

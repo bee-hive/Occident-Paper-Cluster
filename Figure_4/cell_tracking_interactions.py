@@ -26,7 +26,7 @@ pd.set_option('display.width', None)
 sys.path.append(os.path.expanduser('.'))
 
 # helper functions that are specific to the tables and plots for the SH, RASA2, and CUL5 dataset
-from Figure_4.cell_tracking_helper_functions import(
+from cell_tracking_helper_functions import(
     make_roundness_plot_and_table,
     make_comparison_tables,
     make_linear_regression_tables,

@@ -4,37 +4,38 @@
 
 1. `t_cell_segmentation_morphology.py`
     - Inputs:
-        - `directory_path` (line 407): path do the directory that contains the segmentation results for all wells. Zip files in this directory correspond to 50-frame intervals of each well. Standard naming convention is `cart_B10_start_0_end_50_nuc_15_cyto_75.zip` which corresponds to well `B10` between time frames `0` and `50`.
+        - `directory_path` (line 385): path do the directory that contains the segmentation results for all wells. Zip files in this directory correspond to 50-frame intervals of each well. Standard naming convention is `cart_B10_start_0_end_50_nuc_15_cyto_75.zip` which corresponds to well `B10` between time frames `0` and `50`.
     - Outputs:
-        - Plots (pdf files) and tables (csv files) specified from lines 62-74. Note that the location of the `./plots/` and `./tables/` directories will be relative to wherever you execute this python script.
+        - Plots (pdf files) and tables (csv files) specified from lines 39-52. Note that the location of the `./plots/` and `./tables/` directories will be relative to wherever you execute this python script.
     - Execution:
         - `python3 t_cell_segmentation_morphology.py`
     - Notes:
-        - This step is listed first in the Fig 4 pipeline but its inputs and outputs are not required in any other Fig 4 python scripts or notebooks. Therfore, the order that this step is run is not important.
+        - This step is listed first in the Fig 4 pipeline but its inputs and outputs are not required in any other Fig 4 python scripts or notebooks. Therfore, the order that this step is run is not important. You will need to change the relative import of cell_tracking_helper_functions.py if you do not execute the script from the `Figure_4/` directory.
 2. `cell_tracking_velocity_data.py`
     - Inputs:
-        - `directory_path` (line 135): path to the directory that contains Caliban cell tracking results for all wells. Each zip file is read by the `load_data_local()` function specified on line 23 of `utils.py` and contains the following files in each zip. Only the `y.ome.tiff` results get used to compute velocities. T-cells vs cancer cells can be indexed using the 0th dimension of `y.ome.tiff`.
+        - `directory_path` (line 113): path to the directory that contains deepcell (caliban) cell tracking results for all wells. Each zip file is read by the `load_deepcell_object()` function in the occident library's `utils.py` file. The following files are found in each deepcell zip.
             - `cells.json`
-            - `divisions.json`
+            - `divisions.json`: 
             - `X.ome.tiff`
             - `y.ome.tiff` 
+        Only the `y.ome.tiff` results are the segmentation masks that get used to compute velocities. T-cells vs cancer cells can be indexed using the 0th dimension of `y.ome.tiff`.
     - Outputs:
-        - Cell tracking csv file directories in the `./analysis/` folder specified by `save_data_root_path` (line 136). The subdirectory `./analysis/cell_tracking_cancer_csv_data_{timestamp}/` contains velocities for cancer cells and `./analysis/cell_tracking_t_cell_csv_data_{timestamp}/` contains velocities for T-cells. Within each subdirectory, there is one CSV file per well and the columns of the CSV files are `cell_id`, `filename`, `frame`, and `velocity`.
+        - Cell tracking csv file directories in the `./analysis/` folder specified by `save_data_root_path` (line 114). The subdirectory `./analysis/cell_tracking_cancer_csv_data_{timestamp}/` contains velocities for cancer cells and `./analysis/cell_tracking_t_cell_csv_data_{timestamp}/` contains velocities for T-cells. Within each subdirectory, there is one CSV file per well and the columns of the CSV files are `cell_id`, `filename`, `frame`, and `velocity`.
     - Execution:
         - `python3 cell_tracking_velocity_data.py`
     - Notes:
         - This step takes a long time to run (approx 48 hours on a beehive server CPU node). It is therefore recommended to run this script in a tmux window.
 3. `cell_tracking_interactions.py`
     - Inputs:
-        - `directory_path` (line 377): Caliban results directory. Same as directory path input of `cell_tracking_velocity_data.py`.
-        - `existing_velocity_t_cell_data_path` (line 380): T-cell velocities directory generated as the output of `cell_tracking_velocity_data.py`. By default, this path is `./analysis/cell_tracking_t_cell_csv_data_{timestamp}/`.
-        - `existing_velocity_cancer_cell_data_path` (line 381): Cancer cell velocities directory generated as the output of `cell_tracking_velocity_data.py`. By default, this path is `./analysis/cell_tracking_cancer_csv_data_{timestamp}/`.
+        - `directory_path` (line 337): Caliban results directory. Same as directory path input of `cell_tracking_velocity_data.py`.
+        - `existing_velocity_t_cell_data_path` (line 340): T-cell velocities directory generated as the output of `cell_tracking_velocity_data.py`. By default, this path is `./analysis/cell_tracking_t_cell_csv_data_{timestamp}/`.
+        - `existing_velocity_cancer_cell_data_path` (line 341): Cancer cell velocities directory generated as the output of `cell_tracking_velocity_data.py`. By default, this path is `./analysis/cell_tracking_cancer_csv_data_{timestamp}/`.
     - Outputs:
-        - Plots (pdf files) and tables (csv files) specified from lines 290-291, 305-313, and 360-363. Note that the location of the `./plots/` and `./tables/` directories will be relative to wherever you execute this python script.
+        - Plots (pdf files) and tables (csv files) specified from lines 250-251, 275-283, and 320-323. Note that the location of the `./plots/` and `./tables/` directories will be relative to wherever you execute this python script.
     - Execution:
         - `python3 cell_tracking_interactions.py`
     - Notes:
-        - The correct timestamp of the input files will correspond to the time that `cell_tracking_velocity_data.py` was executed in step 2.
+        - The correct timestamp of the input files will correspond to the time that `cell_tracking_velocity_data.py` was executed in step 2. You will need to change the relative import of cell_tracking_helper_functions.py if you do not execute the script from the `Figure_4/` directory.
 4. `interactions.ipynb`
     - Inputs:
         - `interactions` (cell 5): Table of unique cell interactions generated by `cell_tracking_interactions.py` in step 3.
